@@ -81,6 +81,11 @@ class Vocabulary:
         for token in self.unique_tokens:
             self.__collect_chars__(input_data=token)
 
+    @property
+    def get_tokens2index(self):
+
+        return {token: self.token2index[token]['index'] for token in self.token2index}
+
     def __collect_chars__(self, input_data, n_token=1):
 
         for char in input_data:

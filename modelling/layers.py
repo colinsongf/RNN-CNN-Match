@@ -1,7 +1,6 @@
+import math
 import numpy as np
 from tqdm import tqdm
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,96 +9,123 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 class Embedding(nn.Module):
 
-    # TODO trainable embeddings
-
-    def __init__(self):
+    def __init__(self,
+                 embedding_size=300,
+                 sequence_max_length=32,
+                 pad_token='PAD',
+                 pad_index=0,
+                 pad_after=True,
+                 embedding_layer=None,
+                 verbose=False):
 
         super(Embedding, self).__init__()
 
-    def forward(self, x):
-
-        return x
-
-
-class EmbeddingFromPretrained(nn.Module):
-
-    def __init__(self,
-                 weight_file,
-                 vector_size,
-                 sequence_max_length=32,
-                 pad_token='PAD',
-                 pad_after=True,
-                 existing_words=None,
-                 verbose=False):
-
-        super(EmbeddingFromPretrained, self).__init__()
+        # TODO allennlp elmo embeddings
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.weight_file = weight_file
-        self.vector_size = vector_size
-        self.output_size = self.vector_size
+        self.embedding_size = embedding_size
+        self.output_size = self.embedding_size
         self.sequence_max_length = sequence_max_length
 
         self.pad_token = pad_token
-        self.pad_index = 0
+        self.pad_index = pad_index
 
         self.pad_after = pad_after
 
-        self.existing_words = existing_words
+        self.verbose = verbose
 
-        self.word2index = {
+        self.token2index = {
             self.pad_token: self.pad_index
         }
 
-        self.index2word = {
+        self.index2token = {
             self.pad_index: self.pad_token
         }
 
-        self.embedding_layer = self.__collect_embeddings__(verbose=verbose)
+        self.weight_file = None
+        self.embedding_layer = embedding_layer
 
-    def __collect_embeddings__(self, verbose=False):
+    def __collect_pretrained_embeddings__(self, weight_file=None):
 
-        embedding_matrix = [np.zeros(shape=(self.vector_size, ))]
+        self.weight_file = weight_file if weight_file is not None else self.weight_file
+
+        if self.weight_file is None:
+            raise ValueError('Need define weight file')
+
+        embedding_matrix = [np.zeros(shape=(self.embedding_size,))]
 
         with open(file=self.weight_file, mode='r', encoding='utf-8', errors='ignore') as file:
 
-            index = len(self.word2index)
+            index = len(self.token2index)
 
-            lines = tqdm(file.readlines(), desc='Collect embeddings') if verbose else file.readlines()
+            lines = tqdm(file.readlines(), desc='Collect embeddings') if self.verbose else file.readlines()
 
             for line in lines:
 
                 line = line.split()
 
-                word = ' '.join(line[:-self.vector_size])
-                embeddings = np.asarray(line[-self.vector_size:], dtype='float32')
+                word = ' '.join(line[:-self.embedding_size])
+                embeddings = np.asarray(line[-self.embedding_size:], dtype='float32')
 
-                if not word or embeddings.shape[0] != self.vector_size or \
-                        (self.existing_words is not None and word not in self.existing_words):
+                if not word or embeddings.shape[0] != self.embedding_size:
                     continue
 
-                self.word2index[word] = index
-                self.index2word[index] = word
+                self.token2index[word] = index
+                self.index2token[index] = word
 
                 embedding_matrix.append(embeddings)
 
                 index += 1
 
-        return torch.nn.Embedding.from_pretrained(torch.Tensor(embedding_matrix)).to(self.device)
+        self.embedding_layer = torch.nn.Embedding.from_pretrained(torch.Tensor(embedding_matrix)).to(self.device)
+
+    def __create_embeddings_matrix__(self, vocab_size, token2index, index2token, pad_token, pad_index):
+
+        self.token2index = token2index
+        self.index2token = index2token
+        self.pad_token = pad_token
+        self.pad_index = pad_index
+
+        self.embedding_layer = nn.Embedding(num_embeddings=vocab_size,
+                                            embedding_dim=self.embedding_size,
+                                            padding_idx=self.pad_index).to(self.device)
+
+    def set_embeddings(self,
+                       embeddings_type,
+                       weight_file=None,
+                       vocab_size=None,
+                       token2index=None,
+                       index2token=None,
+                       pad_token=None,
+                       pad_index=None):
+
+        if embeddings_type == 'pretrained':
+            self.__collect_pretrained_embeddings__(weight_file=weight_file)
+        elif embeddings_type == 'trainable':
+            self.__create_embeddings_matrix__(vocab_size=vocab_size,
+                                              token2index=token2index,
+                                              index2token=index2token,
+                                              pad_token=pad_token,
+                                              pad_index=pad_index)
+        else:
+            raise ValueError('Unknown embeddings_type')
 
     def forward(self, input_batch, targets_batch=None, permutation=False):
+
+        if self.embedding_layer is None:
+            raise ValueError('Need collect embeddings')
 
         sequence_max_length = self.sequence_max_length if self.sequence_max_length is not None \
             else max([len(sample) for sample in input_batch])
 
         sequence_lengths = []
 
-        embedded_batch = torch.Tensor(size=(len(input_batch), sequence_max_length, self.vector_size)).to(self.device)
+        embedded_batch = torch.Tensor(size=(len(input_batch), sequence_max_length, self.embedding_size)).to(self.device)
 
         for n_sample in range(len(input_batch)):
 
-            tokens = [self.word2index[token] for token in input_batch[n_sample] if token in self.word2index]
+            tokens = [self.token2index[token] for token in input_batch[n_sample] if token in self.token2index]
             tokens = tokens[:sequence_max_length]
 
             if not tokens:
@@ -126,6 +152,7 @@ class EmbeddingFromPretrained(nn.Module):
             targets_batch = torch.Tensor(targets_batch).to(self.device)
 
         if embedded_batch.sum() == 0:
+            # TODO solve this
             return None, None, None
         elif not permutation:
             return embedded_batch
@@ -292,6 +319,8 @@ class CNN(nn.Module):
 
         x = self.convolution_layer(x)
 
+        x = F.relu(x)
+
         if self.pool_layer is not None:
             x = self.pool_layer(x)
 
@@ -308,7 +337,7 @@ class USESimilarity(nn.Module):
     https://arxiv.org/pdf/1803.11175.pdf
     """
 
-    def __init__(self, eps=1e-6):
+    def __init__(self, eps=1e-8):
 
         super(USESimilarity, self).__init__()
 
@@ -318,6 +347,7 @@ class USESimilarity(nn.Module):
 
     def forward(self, u, v):
 
-        sim = 1 - (torch.acos(self.cosine(u, v) - self.eps) / math.pi)
+        sim = 1 - (torch.acos(self.cosine(u, v)) / math.pi)
+        sim = sim.clamp(min=self.eps, max=1-self.eps)
 
         return sim

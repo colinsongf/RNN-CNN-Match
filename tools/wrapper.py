@@ -1,136 +1,222 @@
 import numpy as np
-import random
 import torch
 from tqdm import tqdm
-import tools
+import random
+try:
+    import telegram_send
+except ModuleNotFoundError:
+    pass
 
 
-class Wrapper(tools.DatasetQuora):
+class Wrapper:
 
     def __init__(self,
-                 train_file,
-                 test_file,
+                 dataset,
                  model,
                  optimizer,
                  model_name='default_model',
                  batch_size=32,
-                 validation_size=0.2,
-                 sentence_max_length=32,
-                 indexing=False,
-                 padding_after=True,
-                 stratify=False,
-                 shuffle=True):
+                 cross_entropy_negative_k=None,
+                 generate_negatives_type='random',
+                 hard_negatives_multiplier=3,
+                 embeddings_type='pretrained',
+                 embeddings_weight_file=None):
 
-        super(Wrapper, self).__init__(train_file=train_file,
-                                      test_file=test_file,
-                                      batch_size=batch_size,
-                                      sentence_max_length=sentence_max_length,
-                                      indexing=indexing,
-                                      padding_after=padding_after,
-                                      validation_size=validation_size,
-                                      stratify=stratify,
-                                      shuffle=shuffle)
+        super(Wrapper, self).__init__()
 
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.available_embeddings_types = ['trainable', 'pretrained']
+        self.available_generate_negatives_types = ['random', 'hard']
 
-        self.model = model.to(self.device)
-        self.model_name = model_name
+        self.dataset = dataset
+        self.model = model
         self.optimizer = optimizer
+        self.model_name = model_name
+        self.batch_size = batch_size
+        self.cross_entropy_negative_k = cross_entropy_negative_k if cross_entropy_negative_k is not None \
+            else self.batch_size
+        self.embeddings_type = embeddings_type
+        self.embeddings_weight_file = embeddings_weight_file
+        self.generate_negatives_type = generate_negatives_type
+        self.hard_negatives_multiplier = hard_negatives_multiplier
+
+        if self.embeddings_type not in self.available_embeddings_types:
+            raise ValueError('Unknown embeddings_type. Available: {}'.format(', '.join(
+                self.available_embeddings_types)))
+
+        if self.generate_negatives_type not in self.available_generate_negatives_types:
+            raise ValueError('Unknown generate_negatives_type. Available: {}'.format(', '.join(
+                self.available_generate_negatives_types)))
 
         self.losses = []
         self.batch_mean_losses = []
-
         self.epochs_passed = 0
 
-        self.collect()
+    def collect_data(self, embeddings_weight_file=None):
 
-    # def __get_indexes__(self, data_type='train'):
-    #
-    #     if data_type == 'train':
-    #         indexes = self.indexes[:self.train_test_separator]
-    #     elif data_type == 'test':
-    #         indexes = self.indexes[self.train_test_separator:]
-    #     else:
-    #         raise ValueError('Data types available: train and test')
-    #
-    #     return indexes
+        self.embeddings_weight_file = embeddings_weight_file if embeddings_weight_file is not None \
+            else self.embeddings_weight_file
 
-    # def batch_generator(self,
-    #                     data_type='train',
-    #                     negatives_type='random',
-    #                     k_negatives=150,
-    #                     sequence_max_length=None):
-    #
-    #     indexes = self.__get_indexes__(data_type=data_type)
-    #
-    #     for n_batch in range(len(indexes) // self.batch_size):
-    #
-    #         batch_indexes = indexes[n_batch * self.batch_size:(n_batch + 1) * self.batch_size]
-    #
-    #         sequence_max_length = sequence_max_length if sequence_max_length is not None else -1
-    #
-    #         questions = [self.questions[index][:sequence_max_length] for index in batch_indexes]
-    #         answers_positive = [self.answers[index][:sequence_max_length] for index in batch_indexes]
-    #
-    #         if negatives_type == 'random':
-    #             answers_negatives = self.get_random_answers(data_type=data_type)
-    #         elif negatives_type == 'with_gradient':
-    #             answers_negatives = self.get_with_gradient_answers(data_type=data_type)
-    #         elif negatives_type == 'hard':
-    #             answers_negatives = self.get_hard_answers(data_type=data_type)
-    #         elif negatives_type == 'semi-hard':
-    #             answers_negatives = self.get_semi_hard_answers(data_type=data_type)
-    #         else:
-    #             answers_negatives = []
-    #
-    #         yield questions, answers_positive, answers_negatives
+        self.dataset.collect()
 
-    def get_random_answers(self, data_type='train'):
+        if self.embeddings_type == 'trainable':
 
-        # TODO random answers
+            embedding_layers_params = {
+                'embeddings_type': self.embeddings_type,
+                'vocab_size': len(self.dataset),
+                'token2index': self.dataset.vocabulary.get_tokens2index,
+                'index2token': self.dataset.vocabulary.index2token,
+                'pad_token': self.dataset.vocabulary.pad_token,
+                'pad_index': self.dataset.vocabulary[self.dataset.vocabulary.pad_token]
+            }
 
-        pass
+        else:
 
-    def get_with_gradient_answers(self, data_type='train'):
+            if self.embeddings_weight_file is None:
+                raise ValueError('Need define embeddings_weight_file')
 
-        # TODO negatives with gradient
+            embedding_layers_params = {
+                'embeddings_type': self.embeddings_type,
+                'weight_file': self.embeddings_weight_file
+            }
 
-        pass
+        self.model.query_embedding_layer.set_embeddings(**embedding_layers_params)
 
-    def get_hard_answers(self, data_type='train'):
+        if not self.model.embedding_layer_same:
+            self.model.candidate_embedding_layer.set_embeddings(**embedding_layers_params)
 
-        # TODO hard negatives
+    def __get_samples__(self, data, start, stop):
 
-        pass
+        tmp_data = data[start:stop]
 
-    def get_semi_hard_answers(self, data_type='train'):
+        queries = self.dataset.qids2questions(tmp_data.qid1)
+        positives_candidates = self.dataset.qids2questions(tmp_data.qid2)
 
-        # TODO semi hard negatives
+        return queries, positives_candidates
 
-        pass
+    def get_random_negatives(self, samples=None):
+
+        samples = samples if samples is not None else self.batch_size
+
+        random_qids = random.sample(self.dataset.qid2question.keys(), samples)
+
+        return self.dataset.qids2questions(batch=random_qids)
+
+    def get_hard_negatives(self, queries, samples, k_next=False):
+
+        samples = int(samples)
+
+        negatives = self.get_random_negatives(samples=samples)
+
+        query_vactorized = self.model.text_embedding(x=queries)
+
+        negatives_vectorized = self.model.text_embedding(x=negatives, model_type='candidate')
+        attention = torch.matmul(query_vactorized, negatives_vectorized.transpose(0, 1))
+
+        if k_next:
+
+            # if we wont get top-2
+
+            max_attentive_matrix = torch.zeros_like(attention)
+            values, args = attention.max(dim=1)
+
+            for n, i in enumerate(range(max_attentive_matrix.size(0))):
+                max_attentive_matrix[i, args[n]] = values[n]
+
+            attention -= max_attentive_matrix
+
+        max_attentive_indexes = list(attention.argmax(dim=1).cpu().numpy())
+
+        max_attentive = [negatives[n] for n in max_attentive_indexes]
+
+        return max_attentive
+
+    def __cross_entropy_batch_generator__(self, data, batch_size):
+
+        positives_batch_size = batch_size - self.cross_entropy_negative_k
+
+        for n_batch in range(round(len(data) / batch_size)):
+
+            queries, positives_candidates = self.__get_samples__(data=data,
+                                                                 start=n_batch*positives_batch_size,
+                                                                 stop=(n_batch+1)*positives_batch_size)
+
+            negatives_candidates = self.__generate_negatives__(queries=queries,
+                                                               batch_size=self.cross_entropy_negative_k)
+
+            targets = [1 for _ in range(len(queries))] + [0 for _ in range(len(queries))]
+
+            queries *= 2
+            candidates = positives_candidates + negatives_candidates
+
+            indexes = list(range(len(queries)))
+            random.shuffle(indexes)
+
+            queries = [queries[index] for index in indexes]
+            candidates = [candidates[index] for index in indexes]
+            targets = [targets[index] for index in indexes]
+
+            yield queries, candidates, targets
+
+    def __triplet_batch_generator__(self, data, batch_size):
+
+        for n_batch in range(round(len(data) / batch_size)):
+
+            queries, positives_candidates = self.__get_samples__(data=data,
+                                                                 start=n_batch*batch_size,
+                                                                 stop=(n_batch+1)*batch_size)
+
+            negatives_candidates = self.__generate_negatives__(queries=queries,
+                                                               batch_size=batch_size)
+
+            indexes = list(range(len(queries)))
+            random.shuffle(indexes)
+
+            queries = [queries[index] for index in indexes]
+            positives_candidates = [positives_candidates[index] for index in indexes]
+            negatives_candidates = [negatives_candidates[index] for index in indexes]
+
+            yield queries, positives_candidates, negatives_candidates
+
+    def __generate_negatives__(self, queries, batch_size):
+
+        if self.generate_negatives_type == 'random':
+            return self.get_random_negatives(samples=batch_size)
+        else:
+            return self.get_hard_negatives(queries=queries, samples=batch_size*self.hard_negatives_multiplier)
+
+    def batch_generator(self, data_type='train', batch_size=None):
+
+        data = self.__dict__[data_type]
+        batch_size = batch_size if batch_size is not None else self.batch_size
+
+        if self.model.loss_type == 'cross_entropy':
+            return self.__cross_entropy_batch_generator__(data=data, batch_size=batch_size)
+        elif self.model.loss_type == 'triplet':
+            return self.__triplet_batch_generator__(data=data, batch_size=batch_size)
 
     def train(self,
               epochs=5,
               negatives_type='random',
               verbose=False):
 
-        self.losses = []
-        self.batch_mean_losses = []
+        self.generate_negatives_type = negatives_type if negatives_type is not None else self.generate_negatives_type
 
         for n_epoch in range(1, epochs+1):
 
             if verbose:
-                pbar = tqdm(total=len(self.train_x) // self.batch_size, desc='Train Epoch {}'.format(n_epoch))
+
+                total_n_batches = len(self.dataset.train) // self.batch_size
+
+                if self.model.loss_type == 'cross_entropy':
+                    total_n_batches += self.cross_entropy_negative_k * total_n_batches
+
+                pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(n_epoch))
 
             batch_losses = []
 
-            for query, candidate, target in self.batch_generator(data_type='train'):
+            for batch in self.batch_generator(data_type='train'):
 
-                target = torch.Tensor(target).to(self.device)
-
-                query, candidate = self.model(query, candidate)
-
-                loss = self.model.compute_cross_entropy(query=query, candidate=candidate, target=target)
+                loss = self.model.compute_loss(*batch)
 
                 self.losses.append(loss.item())
                 batch_losses.append(loss.item())

@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from modelling.layers import FullyConnected, RNN, CNN
 import torch.nn.functional as F
-from modelling.templates import EmbeddingTemplate, TripletSimilarityTemplate
 
 
 class DAN(nn.Module):
@@ -27,41 +26,6 @@ class DAN(nn.Module):
         x = self.neural_network(x)
 
         return x
-
-
-class SimilarityDAN(TripletSimilarityTemplate):
-
-    def __init__(self,
-                 embedding_layer=None,
-                 weight_file=None,
-                 embedding_size=300,
-                 sequence_max_length=32,
-                 qa_model_same=False,
-                 sizes=(300, 256, 128, 100),
-                 activation_function=torch.nn.ReLU(),
-                 activation_function_output=None,
-                 delta=1):
-
-        super(SimilarityDAN, self).__init__(query_model=DAN(sizes=sizes,
-                                                            activation_function=activation_function,
-                                                            activation_function_output=activation_function_output),
-
-                                            candidate_model=DAN(sizes=sizes,
-                                                                activation_function=activation_function,
-                                                                activation_function_output=activation_function_output),
-                                            embedding_layer=embedding_layer,
-                                            weight_file=weight_file,
-                                            embedding_size=embedding_size,
-                                            sequence_max_length=sequence_max_length,
-                                            delta=delta)
-
-        self.qa_model_same = qa_model_same
-
-        if self.qa_model_same:
-            self.answer_model = self.question_model
-
-        self.question_model = self.question_model.to(self.device)
-        self.answer_model = self.answer_model.to(self.device)
 
 
 class RNNCNNMatch(nn.Module):
@@ -99,7 +63,7 @@ class RNNCNNMatch(nn.Module):
                                     kernel_size_pool=self.kernel_size_pool)
                                 for kernel_size in self.cnn_kernel_sizes[1:]])
 
-        # TODO do as hyper
+        # TODO do params as hyper
         self.fully_connected = nn.Linear(in_features=896, out_features=300)
 
         self.model = torch.nn.Sequential(*self.layers)

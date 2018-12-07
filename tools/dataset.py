@@ -1,6 +1,5 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
-import numpy as np
 import nltk
 from tools.cleaner import Cleaner
 from tools.vocabulary import Vocabulary
@@ -11,133 +10,114 @@ class DatasetQuora:
     def __init__(self,
                  train_file,
                  test_file,
-                 batch_size=32,
+                 sample_submission_file,
                  sentence_max_length=32,
-                 indexing=False,
+                 word_indexing=False,
                  padding_after=True,
                  validation_size=0.2,
-                 stratify=False,
-                 shuffle=True):
+                 shuffle=True,
+                 text_fillna='what?'):
 
         self.train_file = train_file
         self.test_file = test_file
-        self.batch_size = batch_size
-        self.indexing = indexing
+        self.sample_submission_file = sample_submission_file
+        self.word_indexing = word_indexing
         self.validation_size = validation_size
-        self.stratify = stratify
         self.shuffle = shuffle
+        self.text_fillna = text_fillna
+
+        self.qid2question = {}
 
         self.cleaner = Cleaner()
 
-        self.vocabulary = None
-
-        if self.indexing:
+        if self.word_indexing:
             self.vocabulary = Vocabulary(sentence_max_length=sentence_max_length,
                                          padding_after=padding_after,
                                          name='quora_question_pairs',
                                          sos_token=None,
                                          eos_token=None)
+        else:
+            self.vocabulary = None
 
-        self.train_x = None
-        self.train_y = None
+        self.train = None
+        self.validation = None
+        self.test = None
 
-        self.validation_x = None
-        self.validation_y = None
+        self.sample_submission = None
 
-        self.test_x = None
-
-    def __indexing__(self, text, data_type='train'):
+    def __word_indexing__(self, text, data_type='train'):
 
         if data_type == 'train':
             try:
                 text = self.vocabulary.collect(input_data=text, output=True, tokenize=True, padding_for_output=True)
             except Exception:
-                text = np.NaN
+                text = [self.vocabulary.pad_token]
         else:
             try:
                 text = self.vocabulary.sentence2indexes(input_data=text, tokenize=True, padding=True)
             except Exception:
-                text = np.NaN
+                text = [self.vocabulary.pad_token]
 
         return text
 
     def __prepare_text__(self, text, data_type='train'):
 
-        text = self.cleaner.clean(sentence=text)
+        text = self.cleaner.clean(x=text)
 
-        if self.indexing:
-            text = self.__indexing__(text=text, data_type=data_type)
+        if self.word_indexing:
+            text = self.__word_indexing__(text=text, data_type=data_type)
         else:
             text = nltk.tokenize.wordpunct_tokenize(text=text)
 
         if not text:
-            text = np.NaN
+            text = [self.text_fillna]
 
         return text
+
+    @property
+    def existing_words(self):
+
+        return list(self.vocabulary.token2index.keys())
 
     def collect(self):
 
         train_data = pd.read_csv(self.train_file, index_col='id')
 
+        qids = list(train_data.qid1) + list(train_data.qid2)
+        qids = list(set(qids))
+        qids.sort()
+
+        train_data.question1 = train_data.question1.map(lambda x: self.__prepare_text__(text=x, data_type='train'))
+        train_data.question2 = train_data.question2.map(lambda x: self.__prepare_text__(text=x, data_type='train'))
+
         train_data.dropna(inplace=True)
 
-        self.train_x, self.validation_x, self.train_y, self.validation_y = train_test_split(
-            train_data[[col for col in train_data.columns if col != 'is_duplicate']],
-            train_data['is_duplicate'],
-            stratify=train_data['is_duplicate'] if self.stratify else None,
-            test_size=self.validation_size,
-            shuffle=self.shuffle)
+        for index in train_data.index:
 
-        self.train_x.reset_index(inplace=True, drop=True)
-        self.train_y.reset_index(inplace=True, drop=True)
-        self.validation_x.reset_index(inplace=True, drop=True)
-        self.validation_y.reset_index(inplace=True, drop=True)
+            qid1 = int(train_data.qid1[index])
+            qid2 = int(train_data.qid2[index])
 
-        self.train_x.question1 = self.train_x.question1.map(lambda x: self.__prepare_text__(text=x, data_type='train'))
-        self.train_x.question2 = self.train_x.question2.map(lambda x: self.__prepare_text__(text=x, data_type='train'))
+            if qid1 not in self.qid2question:
+                self.qid2question[qid1] = train_data.question1[index]
 
-        self.validation_x.question1 = self.validation_x.question1.map(lambda x: self.__prepare_text__(
-            text=x,
-            data_type='validation'))
+            if qid2 not in self.qid2question:
+                self.qid2question[qid2] = train_data.question2[index]
 
-        self.validation_x.question2 = self.validation_x.question2.map(lambda x: self.__prepare_text__(
-            text=x,
-            data_type='validation'))
+        train_data = train_data[train_data.is_duplicate == 1][['qid1', 'qid2']]
 
-        self.train_x.dropna(inplace=True)
-        self.validation_x.dropna(inplace=True)
+        self.train, self.validation = train_test_split(train_data,
+                                                       test_size=self.validation_size,
+                                                       shuffle=self.shuffle)
 
-        self.train_y = self.train_y[self.train_x.index]
-        self.validation_y = self.validation_y[self.validation_x.index]
+        # test
+        self.test = pd.read_csv(self.test_file)
+        self.sample_submission = pd.read_csv(self.sample_submission_file)
+        self.test.drop_duplicates(inplace=True)
+        self.test = self.test[self.test.test_id.isin(self.sample_submission.test_id)]
 
-        self.test_x = pd.read_csv(self.test_file, index_col='test_id')
-        self.test_x.drop_duplicates(inplace=True)
-        self.test_x.question1 = self.test_x.question1.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
-        self.test_x.question2 = self.test_x.question2.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
-        self.test_x.fillna(value=['what'])
+        self.test.question1 = self.test.question1.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
+        self.test.question2 = self.test.question2.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
 
-    def batch_generator(self, data_type='train', batch_size=None):
+    def qids2questions(self, batch):
 
-        data_x = self.__dict__['{}_x'.format(data_type)]
-        data_y = self.__dict__['{}_y'.format(data_type)] if data_type != 'test' else None
-
-        batch_size = batch_size if batch_size is not None else self.batch_size
-
-        for n_batch in range(round(data_x.shape[0] / batch_size)):
-
-            question_1 = list(data_x.question1[n_batch * batch_size:(n_batch + 1) * batch_size])
-            question_2 = list(data_x.question2[n_batch * batch_size:(n_batch + 1) * batch_size])
-
-            if self.indexing:
-                question_1 = np.array([np.array(sample) for sample in question_1])
-                question_2 = np.array([np.array(sample) for sample in question_2])
-
-            if data_type == 'test':
-                yield question_1, question_2
-
-            target = list(data_y[n_batch * batch_size:(n_batch + 1) * batch_size])
-
-            if self.indexing:
-                target = np.array(target)
-
-            yield question_1, question_2, target
+        return [self.qid2question[sample] for sample in batch]
