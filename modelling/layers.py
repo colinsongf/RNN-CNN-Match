@@ -144,7 +144,7 @@ class EmbeddingFromPretrained(nn.Module):
             return embedded_batch, sequence_lengths, permutation_idx
 
 
-class NeuralNetwork(nn.Module):
+class FullyConnected(nn.Module):
 
     def __init__(self,
                  sizes,
@@ -153,7 +153,7 @@ class NeuralNetwork(nn.Module):
                  dense_layer_prefix='dense',
                  activation_function_prefix='activation'):
 
-        super(NeuralNetwork, self).__init__()
+        super(FullyConnected, self).__init__()
 
         self.sizes = list(sizes)
         self.activation_function = activation_function
@@ -162,10 +162,6 @@ class NeuralNetwork(nn.Module):
 
         self.dense_layer_prefix = dense_layer_prefix
         self.activation_function_prefix = activation_function_prefix
-
-        # maybe it not necessary
-        if self.sizes[-1] == 1:
-            self.activation_function_output = torch.nn.Sigmoid()
 
         self.input_size = self.sizes[0]
         self.output_size = self.sizes[-1]
@@ -273,8 +269,7 @@ class CNN(nn.Module):
                  out_chanels,
                  kernel_size_convolution,
                  kernel_size_pool=None,
-                 pool_layer=nn.MaxPool1d,
-                 save_format=True):
+                 pool_layer=nn.MaxPool1d):
 
         super(CNN, self).__init__()
 
@@ -290,8 +285,6 @@ class CNN(nn.Module):
         self.pool_layer = pool_layer(kernel_size=self.kernel_size_pool, stride=1) \
             if pool_layer is not None else pool_layer
 
-        self.save_format = save_format
-
     def forward(self, x, x_lengths=None):
 
         # Turn (batch_size x seq_len x input_size) into (batch_size x input_size x seq_len) for CNN
@@ -303,13 +296,12 @@ class CNN(nn.Module):
             x = self.pool_layer(x)
 
         # Turn (batch_size x input_size x seq_len) into (batch_size x seq_len x input_size)
-        if self.save_format:
-            x = x.transpose(1, 2)
+        x = x.transpose(1, 2)
 
         return x
 
 
-class USEDistance(nn.Module):
+class USESimilarity(nn.Module):
 
     """
     Distance function from Universal Sentence Encoder:
@@ -318,7 +310,7 @@ class USEDistance(nn.Module):
 
     def __init__(self, eps=1e-6):
 
-        super(USEDistance, self).__init__()
+        super(USESimilarity, self).__init__()
 
         self.eps = eps
 

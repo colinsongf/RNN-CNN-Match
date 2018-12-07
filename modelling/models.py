@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from modelling.layers import NeuralNetwork, RNN, CNN
+from modelling.layers import FullyConnected, RNN, CNN
 import torch.nn.functional as F
 from modelling.templates import EmbeddingTemplate, TripletSimilarityTemplate
 
@@ -16,9 +16,9 @@ class DAN(nn.Module):
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.neural_network = NeuralNetwork(sizes=sizes,
-                                            activation_function=activation_function,
-                                            activation_function_output=activation_function_output).to(self.device)
+        self.neural_network = FullyConnected(sizes=sizes,
+                                             activation_function=activation_function,
+                                             activation_function_output=activation_function_output).to(self.device)
 
     def forward(self, x):
 
@@ -42,13 +42,13 @@ class SimilarityDAN(TripletSimilarityTemplate):
                  activation_function_output=None,
                  delta=1):
 
-        super(SimilarityDAN, self).__init__(question_model=DAN(sizes=sizes,
-                                                               activation_function=activation_function,
-                                                               activation_function_output=activation_function_output),
+        super(SimilarityDAN, self).__init__(query_model=DAN(sizes=sizes,
+                                                            activation_function=activation_function,
+                                                            activation_function_output=activation_function_output),
 
-                                            answer_model=DAN(sizes=sizes,
-                                                             activation_function=activation_function,
-                                                             activation_function_output=activation_function_output),
+                                            candidate_model=DAN(sizes=sizes,
+                                                                activation_function=activation_function,
+                                                                activation_function_output=activation_function_output),
                                             embedding_layer=embedding_layer,
                                             weight_file=weight_file,
                                             embedding_size=embedding_size,
@@ -83,24 +83,24 @@ class RNNCNNMatch(nn.Module):
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.rnn = RNN(input_layer_size=self.embedding_size, hidden_size=self.rnn_hidden_size, output_last_state=False)
+        self.layers = [RNN(input_layer_size=self.embedding_size,
+                           hidden_size=self.rnn_hidden_size,
+                           output_last_state=False)]
 
-        self.cnns = [CNN(input_size=self.cnn_hidden_size, out_chanels=128, kernel_size_convolution=n, kernel_size_pool=4)
-                     for n in self.cnn_kernel_sizes]
-
-        self.cnns = [CNN(input_size=self.rnn_hidden_size,
-                         out_chanels=self.cnn_hidden_size,
-                         kernel_size_convolution=self.cnn_kernel_sizes[0],
-                         kernel_size_pool=4)]
+        self.layers += [CNN(input_size=self.rnn_hidden_size,
+                            out_chanels=self.cnn_hidden_size,
+                            kernel_size_convolution=self.cnn_kernel_sizes[0],
+                            kernel_size_pool=4)]
 
         if len(self.cnn_kernel_sizes) > 1:
-            self.cnns.extend([CNN(input_size=self.cnn_hidden_size,
-                                  out_chanels=self.cnn_hidden_size,
-                                  kernel_size_convolution=kernel_size,
-                                  kernel_size_pool=self.kernel_size_pool)
-                              for kernel_size in self.cnn_kernel_sizes[1:]])
+            self.layers.extend([CNN(input_size=self.cnn_hidden_size,
+                                    out_chanels=self.cnn_hidden_size,
+                                    kernel_size_convolution=kernel_size,
+                                    kernel_size_pool=self.kernel_size_pool)
+                                for kernel_size in self.cnn_kernel_sizes[1:]])
 
-        self.layers = [self.rnn] + self.cnns
+        # TODO do as hyper
+        self.fully_connected = nn.Linear(in_features=896, out_features=300)
 
         self.model = torch.nn.Sequential(*self.layers)
 
@@ -108,6 +108,8 @@ class RNNCNNMatch(nn.Module):
 
         sample = self.model(sample)
         sample = sample.reshape(sample.size(0), 1, -1).squeeze()
-        sample = F.softmax(sample)
+
+        sample = self.fully_connected(sample)
+        sample = F.softmax(sample, dim=1)
 
         return sample

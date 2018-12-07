@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from modelling.layers import Embedding, EmbeddingFromPretrained, USEDistance
+from modelling.layers import Embedding, EmbeddingFromPretrained, USESimilarity
 
 
 class EmbeddingTemplate(nn.Module):
@@ -113,7 +113,7 @@ class SimilarityTemplate(nn.Module):
                  sequence_max_length=32,
                  embedding_layer_same=True,
                  delta=1,
-                 similarity_function=USEDistance,
+                 similarity_function=USESimilarity,
                  loss=nn.BCELoss,
                  verbose=False):
 

@@ -110,8 +110,11 @@ class DatasetQuora:
         self.train_y = self.train_y[self.train_x.index]
         self.validation_y = self.validation_y[self.validation_x.index]
 
-        # TODO collect test
         self.test_x = pd.read_csv(self.test_file, index_col='test_id')
+        self.test_x.drop_duplicates(inplace=True)
+        self.test_x.question1 = self.test_x.question1.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
+        self.test_x.question2 = self.test_x.question2.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
+        self.test_x.fillna(value=['what'])
 
     def batch_generator(self, data_type='train', batch_size=None):
 
@@ -130,7 +133,7 @@ class DatasetQuora:
                 question_2 = np.array([np.array(sample) for sample in question_2])
 
             if data_type == 'test':
-                return question_1, question_2
+                yield question_1, question_2
 
             target = list(data_y[n_batch * batch_size:(n_batch + 1) * batch_size])
 

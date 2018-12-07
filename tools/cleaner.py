@@ -28,9 +28,9 @@ class Cleaner:
 
         return s
 
-    def clean(self, sentence):
+    def clean(self, x):
 
-        x = sentence.strip().lower()
+        x = str(x).strip().lower()
         x = self.unicode_to_ascii(x)
         x = self.normalize_string(x)
 
