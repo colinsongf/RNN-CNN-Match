@@ -84,8 +84,18 @@ class SimilarityTemplate(nn.Module):
     def compute_loss(self, *batch):
 
         if self.loss_type == 'cross_entropy':
+
+            query, candidate = self.forward(query=batch[0], candidate=batch[1])
+
+            target = torch.Tensor(batch[2])
+
+            batch = [query, candidate, target]
+
             return self.compute_cross_entropy(*batch)
         elif self.loss_type == 'triplet':
+
+            batch = self.forward(*batch)
+
             return self.loss(*batch)
 
     def text_embedding(self, x, model_type='query'):

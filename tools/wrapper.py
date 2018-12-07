@@ -186,7 +186,7 @@ class Wrapper:
 
     def batch_generator(self, data_type='train', batch_size=None):
 
-        data = self.__dict__[data_type]
+        data = self.dataset.__dict__[data_type]
         batch_size = batch_size if batch_size is not None else self.batch_size
 
         if self.model.loss_type == 'cross_entropy':
