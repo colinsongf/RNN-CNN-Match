@@ -304,7 +304,7 @@ class CNN(nn.Module):
 class USESimilarity(nn.Module):
 
     """
-    Distance function from Universal Sentence Encoder:
+    Similarity function from Universal Sentence Encoder:
     https://arxiv.org/pdf/1803.11175.pdf
     """
 
