@@ -17,7 +17,7 @@ class Wrapper:
                  optimizer,
                  model_name='default_model',
                  batch_size=256,
-                 cross_entropy_negative_k_ratio=0.5,
+                 cross_entropy_negative_k_ratio=1.0,
                  generate_negatives_type='random',
                  hard_negatives_multiplier=3,
                  hard_k_next=False,
@@ -49,7 +49,7 @@ class Wrapper:
             raise ValueError('Unknown generate_negatives_type. Available: {}'.format(', '.join(
                 self.available_generate_negatives_types)))
 
-        self.cross_entropy_negative_k = int(batch_size * self.cross_entropy_negative_k_ratio)
+        self.cross_entropy_negative_k = int(self.batch_size * self.cross_entropy_negative_k_ratio)
 
         if self.cross_entropy_negative_k == self.batch_size:
             self.batch_size += self.cross_entropy_negative_k
@@ -95,15 +95,6 @@ class Wrapper:
 
         if not self.model.embedding_layer_same:
             self.model.candidate_embedding_layer.set_embeddings(**embedding_layers_params)
-
-    def __get_samples__(self, data, start, stop):
-
-        tmp_data = data[start:stop]
-
-        queries = self.dataset.qids2questions(tmp_data.qid1)
-        positive_candidates = self.dataset.qids2questions(tmp_data.qid2)
-
-        return queries, positive_candidates
 
     def get_random_negatives(self, samples=None):
 
@@ -213,6 +204,22 @@ class Wrapper:
         recall = self.model.compute_recall(*vectorized_batch)
 
         return loss, recall
+
+    # def indexing(self, batch, model_type='query'):
+    #
+    #     return self.model.__dict__['{}_embedding_layer'.format(model_type)].indexing(batch)
+
+    def __get_samples__(self, data, start, stop):
+
+        tmp_data = data[start:stop]
+
+        queries = self.dataset.qids2questions(tmp_data.qid1)
+        positive_candidates = self.dataset.qids2questions(tmp_data.qid2)
+
+        # queries = self.indexing(batch=queries)
+        # positive_candidates = self.indexing(batch=positive_candidates, model_type='candidate')
+
+        return queries, positive_candidates
 
     def train(self,
               epochs=5,

@@ -84,9 +84,9 @@ class DatasetQuora:
 
         train_data = pd.read_csv(self.train_file, index_col='id')
 
-        qids = list(train_data.qid1) + list(train_data.qid2)
-        qids = list(set(qids))
-        qids.sort()
+        # qids = list(train_data.qid1) + list(train_data.qid2)
+        # qids = list(set(qids))
+        # qids.sort()
 
         train_data.question1 = train_data.question1.map(lambda x: self.__prepare_text__(text=x, data_type='train'))
         train_data.question2 = train_data.question2.map(lambda x: self.__prepare_text__(text=x, data_type='train'))

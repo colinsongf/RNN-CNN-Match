@@ -113,13 +113,11 @@ class SimilarityTemplate(nn.Module):
                     batch = self.forward(*batch)
 
         if self.loss_type == 'cross_entropy':
-            metric_function = self.__compute_recall_cross_entropy__
+            return self.__compute_recall_cross_entropy__(*batch)
         elif self.loss_type == 'triplet':
-            metric_function = self.__compute_recall_triplet__
+            return self.__compute_recall_triplet__(*batch)
         else:
             raise ValueError('Unknown loss_type')
-
-        return metric_function(*batch)
 
     def compute_loss(self, *batch):
 
@@ -131,7 +129,8 @@ class SimilarityTemplate(nn.Module):
 
             # solve Assertion `x >= 0. && x <= 1.' failed. input value should be between 0~1, but got 1.000000
             # occurs at the beginning of training
-            similarity = self.similarity_function(query, candidate).clamp(min=self.eps, max=1-self.eps)
+            # similarity = self.similarity_function(query, candidate).clamp(min=self.eps, max=1-self.eps)
+            similarity = F.relu(self.similarity_function(query, candidate) - self.eps)
 
             vectorized_batch = [query, candidate, target]
 

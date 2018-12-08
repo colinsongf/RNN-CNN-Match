@@ -46,6 +46,8 @@ class Embedding(nn.Module):
         self.weight_file = None
         self.embedding_layer = embedding_layer
 
+        self.embeddings_type = None
+
     def __collect_pretrained_embeddings__(self, weight_file=None):
 
         self.weight_file = weight_file if weight_file is not None else self.weight_file
@@ -100,9 +102,11 @@ class Embedding(nn.Module):
                        pad_token=None,
                        pad_index=None):
 
-        if embeddings_type == 'pretrained':
+        self.embeddings_type = embeddings_type
+
+        if self.embeddings_type == 'pretrained':
             self.__collect_pretrained_embeddings__(weight_file=weight_file)
-        elif embeddings_type == 'trainable':
+        elif self.embeddings_type == 'trainable':
             self.__create_embeddings_matrix__(vocab_size=vocab_size,
                                               token2index=token2index,
                                               index2token=index2token,
@@ -111,29 +115,18 @@ class Embedding(nn.Module):
         else:
             raise ValueError('Unknown embeddings_type')
 
-    def forward(self, input_batch, targets_batch=None, permutation=False):
-
-        if self.embedding_layer is None:
-            raise ValueError('Need define embedding_layer')
+    def indexing(self, batch):
 
         sequence_max_length = self.sequence_max_length if self.sequence_max_length is not None \
-            else max([len(sample) for sample in input_batch])
+            else max([len(sample) for sample in batch])
 
-        sequence_lengths = []
+        for n_sample in range(len(batch)):
 
-        embedded_batch = torch.Tensor(size=(len(input_batch), sequence_max_length, self.embedding_size)).to(self.device)
+            tokens = batch[n_sample]
 
-        for n_sample in range(len(input_batch)):
-
-            tokens = [self.token2index[token] for token in input_batch[n_sample] if token in self.token2index]
-            tokens = tokens[:sequence_max_length]
-
-            if not tokens:
-                if targets_batch is not None:
-                    targets_batch.pop(n_sample)
-                continue
-
-            sequence_lengths.append(len(tokens))
+            if self.embeddings_type == 'pretrained':
+                tokens = [self.token2index[token] for token in tokens if token in self.token2index]
+                tokens = tokens[:sequence_max_length]
 
             if len(tokens) < sequence_max_length:
 
@@ -144,28 +137,15 @@ class Embedding(nn.Module):
                 else:
                     tokens = pads + tokens
 
-            tokens = torch.LongTensor(tokens).to(self.device)
+                batch[n_sample] = tokens
 
-            embedded_batch[n_sample] = self.embedding_layer(tokens).to(self.device)
+        return torch.LongTensor(batch).to(self.device)
 
-        if targets_batch is not None:
-            targets_batch = torch.Tensor(targets_batch).to(self.device)
+    def forward(self, batch):
 
-        if not permutation:
-            return embedded_batch
+        batch = self.indexing(batch=batch)
 
-        sequence_lengths = torch.Tensor(sequence_lengths)
-
-        sequence_lengths, permutation_idx = sequence_lengths.sort(descending=True)
-
-        embedded_batch = embedded_batch[permutation_idx]
-        sequence_lengths = sequence_lengths.to(self.device)
-
-        if targets_batch is not None:
-            targets_batch = targets_batch[permutation_idx]
-            return embedded_batch, sequence_lengths, targets_batch
-        else:
-            return embedded_batch, sequence_lengths, permutation_idx
+        return self.embedding_layer(batch).to(self.device)
 
 
 class FullyConnected(nn.Module):

@@ -54,7 +54,7 @@ class RNNCNNMatch(nn.Module):
         self.layers += [CNN(input_size=self.rnn_hidden_size,
                             out_chanels=self.cnn_hidden_size,
                             kernel_size_convolution=self.cnn_kernel_sizes[0],
-                            kernel_size_pool=4)]
+                            kernel_size_pool=self.kernel_size_pool)]
 
         if len(self.cnn_kernel_sizes) > 1:
             self.layers.extend([CNN(input_size=self.cnn_hidden_size,
