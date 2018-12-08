@@ -17,7 +17,7 @@ class Wrapper:
                  optimizer,
                  model_name='default_model',
                  batch_size=256,
-                 cross_entropy_negative_k=128,
+                 cross_entropy_negative_k_ratio=0.5,
                  generate_negatives_type='random',
                  hard_negatives_multiplier=3,
                  hard_k_next=False,
@@ -34,8 +34,7 @@ class Wrapper:
         self.optimizer = optimizer
         self.model_name = model_name
         self.batch_size = batch_size
-        self.cross_entropy_negative_k = cross_entropy_negative_k if cross_entropy_negative_k is not None \
-            else self.batch_size
+        self.cross_entropy_negative_k_ratio = cross_entropy_negative_k_ratio
         self.embeddings_type = embeddings_type
         self.embeddings_weight_file = embeddings_weight_file
         self.generate_negatives_type = generate_negatives_type
@@ -49,6 +48,8 @@ class Wrapper:
         if self.generate_negatives_type not in self.available_generate_negatives_types:
             raise ValueError('Unknown generate_negatives_type. Available: {}'.format(', '.join(
                 self.available_generate_negatives_types)))
+
+        self.cross_entropy_negative_k = int(batch_size * self.cross_entropy_negative_k_ratio)
 
         if self.cross_entropy_negative_k == self.batch_size:
             self.batch_size += self.cross_entropy_negative_k
@@ -224,12 +225,9 @@ class Wrapper:
 
             if verbose:
 
-                if self.model.loss_type == 'cross_entropy':
-                    total_n_batches = len(self.dataset.train) // (self.batch_size - self.cross_entropy_negative_k)
-                else:
-                    total_n_batches = len(self.dataset.train) // self.batch_size
+                total_n_batches = len(self.dataset.train) // self.batch_size
 
-                pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(n_epoch + self.epochs_passed))
+                pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(self.epochs_passed + 1))
 
             batch_losses = []
             batch_recalls = []

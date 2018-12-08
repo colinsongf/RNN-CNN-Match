@@ -129,6 +129,8 @@ class SimilarityTemplate(nn.Module):
 
             target = torch.Tensor(batch[2]).to(self.device)
 
+            # solve Assertion `x >= 0. && x <= 1.' failed. input value should be between 0~1, but got 1.000000
+            # occurs at the beginning of training
             similarity = self.similarity_function(query, candidate).clamp(min=self.eps, max=1-self.eps)
 
             vectorized_batch = [query, candidate, target]
