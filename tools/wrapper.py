@@ -113,8 +113,6 @@ class Wrapper:
 
         samples = int(samples)
 
-        samples = min(samples, len(self.dataset.validation))
-
         negatives = self.get_random_negatives(samples=samples)
 
         query_vactorized = self.model.text_embedding(x=queries)
@@ -122,7 +120,7 @@ class Wrapper:
         negatives_vectorized = self.model.text_embedding(x=negatives, model_type='candidate')
         attention = torch.matmul(query_vactorized, negatives_vectorized.transpose(0, 1))
 
-        if self.hard_k_next or samples == len(self.dataset.validation):
+        if self.hard_k_next:
 
             # if we wont get top-2
             # if we take too many samples we can choose select sample existing in quieries
@@ -258,7 +256,10 @@ class Wrapper:
             self.epoch_mean_losses.append(np.mean(batch_losses))
             self.epoch_mean_recalls.append(np.mean(batch_recalls))
 
-            for batch in self.batch_generator(data_type='validation', batch_size=len(self.dataset.validation)):
+            validation_epoch_mean_loss = []
+            validation_epoch_mean_recall = []
+
+            for batch in self.batch_generator(data_type='validation', batch_size=self.batch_size*5):
 
                 with torch.no_grad():
 
@@ -267,8 +268,11 @@ class Wrapper:
 
                     validation_loss, validation_recall = self.compute_loss_recall(batch)
 
-                    self.validation_losses.append(validation_loss)
-                    self.validation_recalls.append(validation_recall)
+                    validation_epoch_mean_loss.append(validation_loss)
+                    validation_epoch_mean_recall.append(validation_recall)
+
+            self.validation_losses.append(np.mean(validation_epoch_mean_loss))
+            self.validation_recalls.append(np.mean(validation_epoch_mean_recall))
 
             if verbose:
                 pbar.close()
