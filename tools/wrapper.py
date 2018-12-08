@@ -6,6 +6,7 @@ try:
     import telegram_send
 except ModuleNotFoundError:
     pass
+from matplotlib import pyplot as plt
 
 
 class Wrapper:
@@ -19,6 +20,7 @@ class Wrapper:
                  cross_entropy_negative_k=None,
                  generate_negatives_type='random',
                  hard_negatives_multiplier=3,
+                 hard_k_next=False,
                  embeddings_type='pretrained',
                  embeddings_weight_file=None):
 
@@ -38,6 +40,7 @@ class Wrapper:
         self.embeddings_weight_file = embeddings_weight_file
         self.generate_negatives_type = generate_negatives_type
         self.hard_negatives_multiplier = hard_negatives_multiplier
+        self.hard_k_next = hard_k_next
 
         if self.embeddings_type not in self.available_embeddings_types:
             raise ValueError('Unknown embeddings_type. Available: {}'.format(', '.join(
@@ -48,8 +51,13 @@ class Wrapper:
                 self.available_generate_negatives_types)))
 
         self.losses = []
-        self.batch_mean_losses = []
+        self.recalls = []
+        self.epoch_mean_losses = []
+        self.epoch_mean_recalls = []
         self.epochs_passed = 0
+
+        self.validation_losses = []
+        self.validation_recalls = []
 
     def collect_data(self, embeddings_weight_file=None):
 
@@ -89,9 +97,9 @@ class Wrapper:
         tmp_data = data[start:stop]
 
         queries = self.dataset.qids2questions(tmp_data.qid1)
-        positives_candidates = self.dataset.qids2questions(tmp_data.qid2)
+        positive_candidates = self.dataset.qids2questions(tmp_data.qid2)
 
-        return queries, positives_candidates
+        return queries, positive_candidates
 
     def get_random_negatives(self, samples=None):
 
@@ -101,9 +109,11 @@ class Wrapper:
 
         return self.dataset.qids2questions(batch=random_qids)
 
-    def get_hard_negatives(self, queries, samples, k_next=False):
+    def get_hard_negatives(self, queries, samples):
 
         samples = int(samples)
+
+        samples = min(samples, len(self.dataset.validation))
 
         negatives = self.get_random_negatives(samples=samples)
 
@@ -112,9 +122,10 @@ class Wrapper:
         negatives_vectorized = self.model.text_embedding(x=negatives, model_type='candidate')
         attention = torch.matmul(query_vactorized, negatives_vectorized.transpose(0, 1))
 
-        if k_next:
+        if self.hard_k_next or samples == len(self.dataset.validation):
 
             # if we wont get top-2
+            # if we take too many samples we can choose select sample existing in quieries
 
             max_attentive_matrix = torch.zeros_like(attention)
             values, args = attention.max(dim=1)
@@ -130,23 +141,30 @@ class Wrapper:
 
         return max_attentive
 
+    def __generate_negatives__(self, queries, batch_size):
+
+        if self.generate_negatives_type == 'random':
+            return self.get_random_negatives(samples=batch_size)
+        else:
+            return self.get_hard_negatives(queries=queries, samples=batch_size*self.hard_negatives_multiplier)
+
     def __cross_entropy_batch_generator__(self, data, batch_size):
 
         positives_batch_size = batch_size - self.cross_entropy_negative_k
 
         for n_batch in range(round(len(data) / batch_size)):
 
-            queries, positives_candidates = self.__get_samples__(data=data,
-                                                                 start=n_batch*positives_batch_size,
-                                                                 stop=(n_batch+1)*positives_batch_size)
+            queries, positive_candidates = self.__get_samples__(data=data,
+                                                                start=n_batch*positives_batch_size,
+                                                                stop=(n_batch+1)*positives_batch_size)
 
-            negatives_candidates = self.__generate_negatives__(queries=queries,
-                                                               batch_size=self.cross_entropy_negative_k)
+            negative_candidates = self.__generate_negatives__(queries=queries,
+                                                              batch_size=self.cross_entropy_negative_k)
 
             targets = [1 for _ in range(len(queries))] + [0 for _ in range(len(queries))]
 
             queries *= 2
-            candidates = positives_candidates + negatives_candidates
+            candidates = positive_candidates + negative_candidates
 
             indexes = list(range(len(queries)))
             random.shuffle(indexes)
@@ -161,28 +179,21 @@ class Wrapper:
 
         for n_batch in range(round(len(data) / batch_size)):
 
-            queries, positives_candidates = self.__get_samples__(data=data,
-                                                                 start=n_batch*batch_size,
-                                                                 stop=(n_batch+1)*batch_size)
+            queries, positive_candidates = self.__get_samples__(data=data,
+                                                                start=n_batch*batch_size,
+                                                                stop=(n_batch+1)*batch_size)
 
-            negatives_candidates = self.__generate_negatives__(queries=queries,
-                                                               batch_size=batch_size)
+            negative_candidates = self.__generate_negatives__(queries=queries,
+                                                              batch_size=batch_size)
 
             indexes = list(range(len(queries)))
             random.shuffle(indexes)
 
             queries = [queries[index] for index in indexes]
-            positives_candidates = [positives_candidates[index] for index in indexes]
-            negatives_candidates = [negatives_candidates[index] for index in indexes]
+            positive_candidates = [positive_candidates[index] for index in indexes]
+            negative_candidates = [negative_candidates[index] for index in indexes]
 
-            yield queries, positives_candidates, negatives_candidates
-
-    def __generate_negatives__(self, queries, batch_size):
-
-        if self.generate_negatives_type == 'random':
-            return self.get_random_negatives(samples=batch_size)
-        else:
-            return self.get_hard_negatives(queries=queries, samples=batch_size*self.hard_negatives_multiplier)
+            yield queries, positive_candidates, negative_candidates
 
     def batch_generator(self, data_type='train', batch_size=None):
 
@@ -194,9 +205,16 @@ class Wrapper:
         elif self.model.loss_type == 'triplet':
             return self.__triplet_batch_generator__(data=data, batch_size=batch_size)
 
+    def compute_loss_recall(self, batch):
+
+        loss, vectorized_batch = self.model.compute_loss(*batch)
+        recall = self.model.compute_recall(*vectorized_batch)
+
+        return loss, recall
+
     def train(self,
               epochs=5,
-              negatives_type='random',
+              negatives_type=None,
               verbose=False):
 
         self.generate_negatives_type = negatives_type if negatives_type is not None else self.generate_negatives_type
@@ -213,10 +231,17 @@ class Wrapper:
                 pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(n_epoch))
 
             batch_losses = []
+            batch_recalls = []
 
             for batch in self.batch_generator(data_type='train'):
 
-                loss = self.model.compute_loss(*batch)
+                # loss, vectorized_batch = self.model.compute_loss(*batch)
+                # recall = self.model.compute_recall(*vectorized_batch)
+
+                loss, recall = self.compute_loss_recall(batch)
+
+                batch_recalls.append(recall)
+                self.recalls.append(recall)
 
                 self.losses.append(loss.item())
                 batch_losses.append(loss.item())
@@ -228,20 +253,66 @@ class Wrapper:
                 if verbose:
                     pbar.update(1)
 
-            batch_mean_loss = np.mean(batch_losses)
+            self.epochs_passed += 1
 
-            self.batch_mean_losses.append(batch_mean_loss)
+            self.epoch_mean_losses.append(np.mean(batch_losses))
+            self.epoch_mean_recalls.append(np.mean(batch_recalls))
+
+            for batch in self.batch_generator(data_type='validation', batch_size=len(self.dataset.validation)):
+
+                with torch.no_grad():
+
+                    # validation_loss, vectorized_batch = self.model.compute_loss(*batch)
+                    # validation_recall = self.model.compute_recall(*vectorized_batch)
+
+                    validation_loss, validation_recall = self.compute_loss_recall(batch)
+
+                    self.validation_losses.append(validation_loss)
+                    self.validation_recalls.append(validation_recall)
 
             if verbose:
                 pbar.close()
 
-            message = 'Epoch: [{}/{}] | Loss: {:.5f}'.format(
-                n_epoch,
-                epochs,
-                batch_mean_loss
-            )
+                message = list()
 
-            if verbose:
+                message.append(
+                    'Epoch: [{}/{}] | {} loss: {:.3f} | Validation Loss: {:.3f}'.format(
+                        n_epoch + self.epochs_passed,
+                        epochs + self.epochs_passed,
+                        self.model.loss_type.capitalize(),
+                        self.epoch_mean_losses[-1],
+                        self.validation_losses[-1]
+                    )
+                )
+
+                message.append(
+                    'Mean Recall: {:.2f} | Validation Recall: {:.2f}'.format(
+                        self.epoch_mean_recalls[-1],
+                        self.validation_recalls[-1]
+                    )
+                )
+
+                message = '\n'.join(message)
+
                 print(message)
 
-            self.epochs_passed += 1
+                self.plot(self.losses, save=True)
+
+    def plot(self, data, title=None, xlabel='iter', ylabel='loss', figsize=(16, 14), save=False):
+
+        title = title if title is not None else '{} with {} negatives'.format(self.model_name,
+                                                                              self.generate_negatives_type)
+
+        plt.figure(figsize=figsize)
+        plt.plot(data)
+        plt.title(title)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.grid()
+
+        if save:
+            plt.savefig('images/{}'.format(title))
+
+    def submission(self, path='submission.csv'):
+
+        pass

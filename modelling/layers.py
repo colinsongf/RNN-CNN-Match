@@ -7,6 +7,19 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
+def gelu(x):
+
+    # TODO do as class
+
+    """
+    Gaussian Error Linear Unit implementation
+    https://arxiv.org/pdf/1606.08415.pdf
+    Used in transformer
+    """
+
+    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+
+
 class Embedding(nn.Module):
 
     def __init__(self,
@@ -296,7 +309,8 @@ class CNN(nn.Module):
                  out_chanels,
                  kernel_size_convolution,
                  kernel_size_pool=None,
-                 pool_layer=nn.MaxPool1d):
+                 pool_layer=nn.MaxPool1d,
+                 activation_function=gelu):
 
         super(CNN, self).__init__()
 
@@ -312,6 +326,8 @@ class CNN(nn.Module):
         self.pool_layer = pool_layer(kernel_size=self.kernel_size_pool, stride=1) \
             if pool_layer is not None else pool_layer
 
+        self.activation_function = activation_function
+
     def forward(self, x, x_lengths=None):
 
         # Turn (batch_size x seq_len x input_size) into (batch_size x input_size x seq_len) for CNN
@@ -319,7 +335,7 @@ class CNN(nn.Module):
 
         x = self.convolution_layer(x)
 
-        x = F.relu(x)
+        x = self.activation_function(x)
 
         if self.pool_layer is not None:
             x = self.pool_layer(x)
@@ -337,7 +353,7 @@ class USESimilarity(nn.Module):
     https://arxiv.org/pdf/1803.11175.pdf
     """
 
-    def __init__(self, eps=1e-8):
+    def __init__(self, eps=1e-6):
 
         super(USESimilarity, self).__init__()
 
@@ -347,7 +363,29 @@ class USESimilarity(nn.Module):
 
     def forward(self, u, v):
 
-        sim = 1 - (torch.acos(self.cosine(u, v)) / math.pi)
-        sim = sim.clamp(min=self.eps, max=1-self.eps)
+        sim = 1 - (torch.acos(self.cosine(u, v) - self.eps) / math.pi)
+        # sim = sim.clamp(min=self.eps, max=1-self.eps)
 
         return sim
+
+
+class USETripletMarginLoss(nn.Module):
+
+    """
+    Loss class used Universal Sentence Encoder similarity function
+    https://arxiv.org/pdf/1803.11175.pdf
+    """
+
+    def __init__(self, margin=1):
+
+        super(USETripletMarginLoss, self).__init__()
+
+        self.similarity_function = USESimilarity()
+        self.margin = margin
+
+    def forward(self, query, positive_candidate, negative_candidate):
+
+        similarity_positive = self.similarity_function(query, positive_candidate)
+        similarity_negative = self.similarity_function(query, negative_candidate)
+
+        return F.relu(self.margin + similarity_positive - similarity_negative).mean()

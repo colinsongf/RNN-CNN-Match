@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
-from modelling.layers import Embedding, USESimilarity
+import torch.nn.functional as F
+from modelling.layers import Embedding, USESimilarity, USETripletMarginLoss
+
+
+# TODO implement some of this https://www.jeremyjordan.me/nn-learning-rate/ or use lr finder from fast.ai
 
 
 class SimilarityTemplate(nn.Module):
@@ -12,7 +16,7 @@ class SimilarityTemplate(nn.Module):
                  embedding_weight_file=None,
                  embedding_layer_same=True,
                  sequence_max_length=32,
-                 delta=1,
+                 margin=1,
                  similarity_function=USESimilarity,
                  loss_type='cross_entropy',
                  verbose=False):
@@ -41,7 +45,7 @@ class SimilarityTemplate(nn.Module):
         self.query_model = query_model.to(self.device)
         self.candidate_model = candidate_model.to(self.device) if candidate_model is not None else self.query_model
 
-        self.delta = delta
+        self.margin = margin
         self.similarity_function = similarity_function().to(self.device)
 
         self.loss_type = loss_type
@@ -49,7 +53,8 @@ class SimilarityTemplate(nn.Module):
         if self.loss_type == 'cross_entropy':
             self.loss = nn.BCELoss().to(self.device)
         elif self.loss_type == 'triplet':
-            self.loss = nn.TripletMarginLoss(margin=delta).to(self.device)
+            # self.loss = nn.TripletMarginLoss(margin=margin).to(self.device)
+            self.loss = USETripletMarginLoss(margin=margin).to(self.device)
         else:
             raise ValueError('Unknown loss type. Available: "cross_entropy" and "triplet"')
 
@@ -72,14 +77,44 @@ class SimilarityTemplate(nn.Module):
 
         return inputs
 
-    def compute_cross_entropy(self, query, candidate, target):
+    def __compute_recall_cross_entropy__(self, query, candidate, target):
 
-        similarity = self.similarity_function(query, candidate)
+        similarity = self.similarity_function(query, candidate).round()
 
-        if self.loss is not None:
-            return self.loss(similarity, target)
+        return float((similarity == target).type(torch.FloatTensor).mean().cpu().numpy())
+
+    def __compute_recall_triplet__(self, query, positive_candidate, negative_candidate):
+        """
+        Compute probability at which similarity_function(query, negative_candidate) is greater than
+        similarity_function(queries, positive_candidate)
+        """
+
+        similarity_positive = self.similarity_function(query, positive_candidate)
+        similarity_negative = self.similarity_function(query, negative_candidate)
+
+        return float((similarity_positive > similarity_negative).type(torch.FloatTensor).mean().cpu().numpy())
+
+    def compute_recall(self, *batch, vectorize=False):
+
+        if vectorize:
+
+            with torch.no_grad():
+
+                if self.loss_type == 'cross_entropy':
+                    target = batch[-1]
+                    batch = self.forward(*batch[:-1])
+                    batch += [target]
+                elif self.loss_type == 'triplet':
+                    batch = self.forward(*batch)
+
+        if self.loss_type == 'cross_entropy':
+            metric_function = self.__compute_recall_cross_entropy__
+        elif self.loss_type == 'triplet':
+            metric_function = self.__compute_recall_triplet__
         else:
-            raise ValueError('Need define cross_entropy loss')
+            raise ValueError('Unknown loss_type')
+
+        return metric_function(*batch)
 
     def compute_loss(self, *batch):
 
@@ -89,14 +124,17 @@ class SimilarityTemplate(nn.Module):
 
             target = torch.Tensor(batch[2])
 
-            batch = [query, candidate, target]
+            similarity = self.similarity_function(query, candidate)
 
-            return self.compute_cross_entropy(*batch)
+            vectorized_batch = [query, candidate, target]
+
+            return self.loss(similarity, target), vectorized_batch
+
         elif self.loss_type == 'triplet':
 
-            batch = self.forward(*batch)
+            vectorized_batch = self.forward(*batch)
 
-            return self.loss(*batch)
+            return self.loss(*vectorized_batch), vectorized_batch
 
     def text_embedding(self, x, model_type='query'):
 

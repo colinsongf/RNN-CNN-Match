@@ -41,9 +41,6 @@ class DatasetQuora:
 
         self.train = None
         self.validation = None
-        self.test = None
-
-        self.sample_submission = None
 
     def __word_indexing__(self, text, data_type='train'):
 
@@ -79,6 +76,10 @@ class DatasetQuora:
 
         return list(self.vocabulary.token2index.keys())
 
+    def qids2questions(self, batch):
+
+        return [self.qid2question[sample] for sample in batch]
+
     def collect(self):
 
         train_data = pd.read_csv(self.train_file, index_col='id')
@@ -109,15 +110,15 @@ class DatasetQuora:
                                                        test_size=self.validation_size,
                                                        shuffle=self.shuffle)
 
-        # test
-        self.test = pd.read_csv(self.test_file)
-        self.sample_submission = pd.read_csv(self.sample_submission_file)
-        self.test.drop_duplicates(inplace=True)
-        self.test = self.test[self.test.test_id.isin(self.sample_submission.test_id)]
+    @property
+    def get_test_submission(self):
 
-        self.test.question1 = self.test.question1.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
-        self.test.question2 = self.test.question2.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
+        test = pd.read_csv(self.test_file)
+        sample_submission = pd.read_csv(self.sample_submission_file)
+        test.drop_duplicates(inplace=True)
+        test = test[test.test_id.isin(sample_submission.test_id)]
 
-    def qids2questions(self, batch):
+        test.question1 = test.question1.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
+        test.question2 = test.question2.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
 
-        return [self.qid2question[sample] for sample in batch]
+        return test, sample_submission
