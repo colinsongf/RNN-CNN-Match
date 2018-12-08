@@ -20,6 +20,7 @@ class SimilarityTemplate(nn.Module):
                  # similarity_function=USESimilarity,
                  similarity_function=torch.nn.CosineSimilarity,
                  loss_type='cross_entropy',
+                 eps=1e-5,
                  verbose=False):
 
         super(SimilarityTemplate, self).__init__()
@@ -50,12 +51,13 @@ class SimilarityTemplate(nn.Module):
         self.similarity_function = similarity_function().to(self.device)
 
         self.loss_type = loss_type
+        self.eps = eps
 
         if self.loss_type == 'cross_entropy':
             self.loss = nn.BCELoss()
         elif self.loss_type == 'triplet':
-            # self.loss = nn.TripletMarginLoss(margin=margin).to(self.device)
-            self.loss = USETripletMarginLoss(margin=margin)
+            self.loss = nn.TripletMarginLoss(margin=margin).to(self.device)
+            # self.loss = USETripletMarginLoss(margin=margin)
         else:
             raise ValueError('Unknown loss type. Available: "cross_entropy" and "triplet"')
 
@@ -127,7 +129,7 @@ class SimilarityTemplate(nn.Module):
 
             target = torch.Tensor(batch[2]).to(self.device)
 
-            similarity = self.similarity_function(query, candidate)
+            similarity = self.similarity_function(query, candidate).clamp(min=self.eps, max=1-self.eps)
 
             vectorized_batch = [query, candidate, target]
 

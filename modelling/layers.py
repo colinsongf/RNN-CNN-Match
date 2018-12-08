@@ -7,19 +7,6 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
-def gelu(x):
-
-    # TODO do as class
-
-    """
-    Gaussian Error Linear Unit implementation
-    https://arxiv.org/pdf/1606.08415.pdf
-    Used in transformer
-    """
-
-    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-
-
 class Embedding(nn.Module):
 
     def __init__(self,
@@ -127,7 +114,7 @@ class Embedding(nn.Module):
     def forward(self, input_batch, targets_batch=None, permutation=False):
 
         if self.embedding_layer is None:
-            raise ValueError('Need collect embeddings')
+            raise ValueError('Need define embedding_layer')
 
         sequence_max_length = self.sequence_max_length if self.sequence_max_length is not None \
             else max([len(sample) for sample in input_batch])
@@ -164,10 +151,7 @@ class Embedding(nn.Module):
         if targets_batch is not None:
             targets_batch = torch.Tensor(targets_batch).to(self.device)
 
-        if embedded_batch.sum() == 0:
-            # TODO solve this
-            return None, None, None
-        elif not permutation:
+        if not permutation:
             return embedded_batch
 
         sequence_lengths = torch.Tensor(sequence_lengths)
@@ -310,7 +294,7 @@ class CNN(nn.Module):
                  kernel_size_convolution,
                  kernel_size_pool=None,
                  pool_layer=nn.MaxPool1d,
-                 activation_function=gelu):
+                 activation_function=F.relu):
 
         super(CNN, self).__init__()
 
@@ -353,7 +337,7 @@ class USESimilarity(nn.Module):
     https://arxiv.org/pdf/1803.11175.pdf
     """
 
-    def __init__(self, eps=1e-6):
+    def __init__(self, eps=1e-5):
 
         super(USESimilarity, self).__init__()
 
@@ -389,3 +373,16 @@ class USETripletMarginLoss(nn.Module):
         similarity_negative = self.similarity_function(query, negative_candidate)
 
         return F.relu(self.margin + similarity_positive - similarity_negative).mean()
+
+
+def gelu(x):
+
+    # TODO do as class
+
+    """
+    Gaussian Error Linear Unit implementation
+    https://arxiv.org/pdf/1606.08415.pdf
+    Used in transformer
+    """
+
+    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))

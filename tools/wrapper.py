@@ -69,11 +69,11 @@ class Wrapper:
 
         self.dataset.collect()
 
-        if self.embeddings_type == 'trainable':
+        if self.embeddings_type == 'trainable' or self.dataset.word_indexing:
 
             embedding_layers_params = {
                 'embeddings_type': self.embeddings_type,
-                'vocab_size': len(self.dataset),
+                'vocab_size': len(self.dataset.vocabulary),
                 'token2index': self.dataset.vocabulary.get_tokens2index,
                 'index2token': self.dataset.vocabulary.index2token,
                 'pad_token': self.dataset.vocabulary.pad_token,
@@ -229,7 +229,7 @@ class Wrapper:
                 else:
                     total_n_batches = len(self.dataset.train) // self.batch_size
 
-                pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(n_epoch))
+                pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(n_epoch + self.epochs_passed))
 
             batch_losses = []
             batch_recalls = []
@@ -271,7 +271,7 @@ class Wrapper:
 
                     validation_loss, validation_recall = self.compute_loss_recall(batch)
 
-                    validation_epoch_mean_loss.append(validation_loss)
+                    validation_epoch_mean_loss.append(validation_loss.item())
                     validation_epoch_mean_recall.append(validation_recall)
 
             self.validation_losses.append(np.mean(validation_epoch_mean_loss))
@@ -284,8 +284,8 @@ class Wrapper:
 
                 message.append(
                     'Epoch: [{}/{}] | {} loss: {:.3f} | Validation Loss: {:.3f}'.format(
-                        n_epoch + self.epochs_passed - 1,
-                        epochs + self.epochs_passed - 1,
+                        n_epoch,
+                        epochs,
                         self.model.loss_type.capitalize(),
                         self.epoch_mean_losses[-1],
                         self.validation_losses[-1]
@@ -303,7 +303,8 @@ class Wrapper:
 
                 print(message)
 
-                self.plot(self.losses, save=True)
+        if verbose:
+            self.plot(self.losses, save=True)
 
     def plot(self, data, title=None, xlabel='iter', ylabel='loss', figsize=(16, 14), save=False):
 
