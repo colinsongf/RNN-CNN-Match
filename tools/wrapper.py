@@ -16,8 +16,8 @@ class Wrapper:
                  model,
                  optimizer,
                  model_name='default_model',
-                 batch_size=32,
-                 cross_entropy_negative_k=None,
+                 batch_size=256,
+                 cross_entropy_negative_k=128,
                  generate_negatives_type='random',
                  hard_negatives_multiplier=3,
                  hard_k_next=False,
@@ -49,6 +49,9 @@ class Wrapper:
         if self.generate_negatives_type not in self.available_generate_negatives_types:
             raise ValueError('Unknown generate_negatives_type. Available: {}'.format(', '.join(
                 self.available_generate_negatives_types)))
+
+        if self.cross_entropy_negative_k == self.batch_size:
+            self.batch_size += self.cross_entropy_negative_k
 
         self.losses = []
         self.recalls = []
@@ -221,10 +224,10 @@ class Wrapper:
 
             if verbose:
 
-                total_n_batches = len(self.dataset.train) // self.batch_size
-
                 if self.model.loss_type == 'cross_entropy':
-                    total_n_batches += self.cross_entropy_negative_k * total_n_batches
+                    total_n_batches = len(self.dataset.train) // (self.batch_size - self.cross_entropy_negative_k)
+                else:
+                    total_n_batches = len(self.dataset.train) // self.batch_size
 
                 pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(n_epoch))
 
@@ -281,8 +284,8 @@ class Wrapper:
 
                 message.append(
                     'Epoch: [{}/{}] | {} loss: {:.3f} | Validation Loss: {:.3f}'.format(
-                        n_epoch + self.epochs_passed,
-                        epochs + self.epochs_passed,
+                        n_epoch + self.epochs_passed - 1,
+                        epochs + self.epochs_passed - 1,
                         self.model.loss_type.capitalize(),
                         self.epoch_mean_losses[-1],
                         self.validation_losses[-1]
