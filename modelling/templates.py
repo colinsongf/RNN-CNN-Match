@@ -18,8 +18,8 @@ class SimilarityTemplate(nn.Module):
                  embedding_matrix=None,
                  embedding_layer_same=True,
                  margin=1,
-                 similarity_function=USESimilarity,
-                 # similarity_function=torch.nn.CosineSimilarity,
+                 # similarity_function=USESimilarity,
+                 similarity_function=torch.nn.CosineSimilarity,
                  loss_type='cross_entropy',
                  eps=1e-5):
 
@@ -58,8 +58,8 @@ class SimilarityTemplate(nn.Module):
         if self.loss_type == 'cross_entropy':
             self.loss = nn.BCELoss()
         elif self.loss_type == 'triplet':
-            # self.loss = nn.TripletMarginLoss(margin=margin)
-            self.loss = USETripletMarginLoss(margin=margin)
+            self.loss = nn.TripletMarginLoss(margin=margin)
+            # self.loss = USETripletMarginLoss(margin=margin)
         else:
             raise ValueError('Unknown loss type. Available: "cross_entropy" and "triplet"')
 

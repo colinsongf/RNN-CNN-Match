@@ -156,10 +156,9 @@ class CNN(nn.Module):
                                                  kernel_size=self.kernel_size_convolution)
 
         self.kernel_size_pool = kernel_size_pool if kernel_size_pool is not None else self.kernel_size_convolution
+        self.activation_function = activation_function()
         self.pool_layer = pool_layer(kernel_size=self.kernel_size_pool, stride=1) \
             if pool_layer is not None else pool_layer
-
-        self.activation_function = activation_function()
 
     def forward(self, x, x_lengths=None):
 
@@ -224,14 +223,14 @@ class USETripletMarginLoss(nn.Module):
         return F.relu(self.margin + similarity_positive - similarity_negative).mean()
 
 
-def gelu(x):
-
-    # TODO do as torch class
-
-    """
-    Gaussian Error Linear Unit implementation
-    https://arxiv.org/pdf/1606.08415.pdf
-    Used in transformer
-    """
-
-    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+# def gelu(x):
+#
+#     # TODO do as torch class
+#
+#     """
+#     Gaussian Error Linear Unit implementation
+#     https://arxiv.org/pdf/1606.08415.pdf
+#     Used in transformer
+#     """
+#
+#     return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
