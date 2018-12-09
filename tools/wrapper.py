@@ -24,6 +24,9 @@ class Wrapper:
                  hard_negatives_multiplier=5,
                  max_hard_negatives=10000,
                  hard_k_next=True):
+        """
+        Init params
+        """
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -74,6 +77,9 @@ class Wrapper:
         self.validation_best_mean_loss = 1000
 
     def get_random_negatives(self, samples=None):
+        """
+        Generate random negatives candidates
+        """
 
         samples = samples if samples is not None else self.batch_size
 
@@ -82,6 +88,9 @@ class Wrapper:
         return self.dataset.prepare_batch(batch=random_qids)
 
     def get_hard_negatives(self, queries, samples):
+        """
+        Generate hard negatives candidates
+        """
 
         samples = int(min(samples, self.max_hard_negatives))
 
@@ -116,6 +125,9 @@ class Wrapper:
         return self.dataset.prepare_batch(max_attentive_qids)
 
     def __generate_negatives__(self, queries, batch_size):
+        """
+        Choose method and generate negatives candidates
+        """
 
         if self.generate_negatives_type == 'random':
             return self.get_random_negatives(samples=batch_size)
@@ -123,6 +135,9 @@ class Wrapper:
             return self.get_hard_negatives(queries=queries, samples=batch_size * self.hard_negatives_multiplier)
 
     def __cross_entropy_batch_generator__(self, data, batch_size):
+        """
+        Batch generator for binary cross-entropy loss
+        """
 
         positives_batch_size = batch_size - self.cross_entropy_negative_k
 
@@ -137,7 +152,7 @@ class Wrapper:
             negative_candidates = self.__generate_negatives__(queries=queries,
                                                               batch_size=self.cross_entropy_negative_k)
 
-            targets = [1 for _ in range(len(queries))] + [0 for _ in range(len(queries))]
+            targets = [1 for _ in range(len(positive_candidates))] + [0 for _ in range(len(negative_candidates))]
 
             queries *= 2
             candidates = positive_candidates + negative_candidates
@@ -154,6 +169,9 @@ class Wrapper:
                   torch.Tensor(targets).to(self.device)
 
     def __triplet_batch_generator__(self, data, batch_size):
+        """
+        Batch generator for Triplet Margin Loss loss
+        """
 
         for n_batch in range(round(len(data) / batch_size)):
 
@@ -176,6 +194,9 @@ class Wrapper:
                   torch.LongTensor(negative_candidates).to(self.device)
 
     def batch_generator(self, data_type='train', batch_size=None):
+        """
+        Batch generator with choosing method and select data
+        """
 
         data = self.dataset.__dict__[data_type]
         batch_size = batch_size if batch_size is not None else self.batch_size
@@ -186,6 +207,9 @@ class Wrapper:
             return self.__triplet_batch_generator__(data=data, batch_size=batch_size)
 
     def compute_loss_recall(self, batch, validation=False):
+        """
+        Compute loss and recall
+        """
 
         loss, vectorized_batch = self.model.compute_loss(*batch)
         recall = self.model.compute_recall(*vectorized_batch, mean=not validation)
@@ -197,6 +221,9 @@ class Wrapper:
               negatives_type=None,
               verbose=False,
               save_best=False):
+        """
+        Train method with loss and metric tracking and ploting results
+        """
 
         self.generate_negatives_type = negatives_type if negatives_type is not None else self.generate_negatives_type
 
@@ -292,6 +319,9 @@ class Wrapper:
             self.plot(self.losses, save=True)
 
     def save_model(self, path=None):
+        """
+        Save model. Use in train for save best perfomance model
+        """
 
         path = path if path is not None else self.model_name
 
@@ -299,6 +329,9 @@ class Wrapper:
         torch.save(self.model, path)
 
     def plot(self, data, title=None, xlabel='iter', ylabel='loss', figsize=(16, 14), save=True):
+        """
+        Plotting data
+        """
 
         title = title if title is not None else self.model_name
 
@@ -313,6 +346,9 @@ class Wrapper:
             plt.savefig('images/{}'.format(title))
 
     def submission(self, path=None, batch_size=2048, verbose=False):
+        """
+        Generate submission file
+        """
 
         if path is None:
             path = '{}_submission.csv'.format(self.model_name)
@@ -352,4 +388,4 @@ class Wrapper:
 
         submission.is_duplicate = is_duplicate
 
-        submission.to_csv(path)
+        submission.to_csv(path, index=None)

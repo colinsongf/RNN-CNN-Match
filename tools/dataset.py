@@ -20,6 +20,9 @@ class DatasetQuora:
                  validation_size=0.2,
                  shuffle=True,
                  text_fillna='what?'):
+        """
+        Init params
+        """
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -49,6 +52,9 @@ class DatasetQuora:
         self.collect()
 
     def __prepare_text__(self, text, data_type='train'):
+        """
+        Prepare from from raw text to correct tokens, set vocabulary
+        """
 
         text = self.cleaner.clean(x=text)
 
@@ -67,13 +73,21 @@ class DatasetQuora:
                     self.token2index[token] = index
                     self.index2token[index] = token
 
+        text = text[:self.sequence_max_length]
+
         return text
 
     def qids2questions(self, batch):
+        """
+        qid2question for batch
+        """
 
         return [self.qid2question[sample] for sample in batch]
 
     def prepare_batch(self, batch, qids=True):
+        """
+        Convert text batch to indexes batch
+        """
 
         if qids:
             batch = self.qids2questions(batch=batch)
@@ -84,6 +98,7 @@ class DatasetQuora:
 
             tokens = [self.token2index[token] for token in tokens if token in self.token2index]
 
+            # because we can change sequence_max_length
             tokens = tokens[:self.sequence_max_length]
 
             if len(tokens) < self.sequence_max_length:
@@ -100,6 +115,9 @@ class DatasetQuora:
         return batch
 
     def collect(self):
+        """
+        Collect train and validation from files to train and validation
+        """
 
         train_data = pd.read_csv(self.train_file, index_col='id')
 
@@ -126,6 +144,9 @@ class DatasetQuora:
                                                        shuffle=self.shuffle)
 
     def load_pretrained_embeddings(self, embedding_weight_file, embedding_size=300, verbose=False):
+        """
+        Load word2vec-like embeddings and return it. Also collect vocabulary
+        """
 
         self.token2index = {
             self.pad_token: self.pad_index
@@ -162,10 +183,11 @@ class DatasetQuora:
 
         return embedding_matrix
 
-        # self.embedding_layer = torch.nn.Embedding.from_pretrained(torch.Tensor(embedding_matrix)).to(self.device)
-
     @property
     def get_test_submission(self):
+        """
+        Return correct test and sample_submission DataFrames
+        """
 
         test = pd.read_csv(self.test_file)
         sample_submission = pd.read_csv(self.sample_submission_file)

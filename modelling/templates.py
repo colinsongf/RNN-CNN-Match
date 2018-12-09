@@ -22,6 +22,9 @@ class SimilarityTemplate(nn.Module):
                  similarity_function=torch.nn.CosineSimilarity,
                  loss_type='cross_entropy',
                  eps=1e-5):
+        """
+        Template for similarity models with 2 heads
+        """
 
         super(SimilarityTemplate, self).__init__()
 
@@ -66,6 +69,9 @@ class SimilarityTemplate(nn.Module):
         self.loss = self.loss.to(self.device)
 
     def forward(self, query, candidate, negative_candidate_for_triplet=None):
+        """
+        For both: cross_entropy and triplet if you set correct loss function and negative_candidate_for_triplet
+        """
 
         inputs = [query, candidate]
 
@@ -85,6 +91,9 @@ class SimilarityTemplate(nn.Module):
         return inputs
 
     def __compute_recall_cross_entropy__(self, query, candidate, target, mean=True):
+        """
+        Compute recall for only cross-entropy
+        """
 
         similarity = self.similarity_function(query, candidate).round()
 
@@ -109,6 +118,9 @@ class SimilarityTemplate(nn.Module):
                     (similarity_positive > similarity_negative).type(torch.FloatTensor).cpu().numpy()]
 
     def compute_recall(self, *batch, vectorize=False, mean=True):
+        """
+        Compute recall for both with auto choose
+        """
 
         if vectorize:
 
@@ -129,6 +141,9 @@ class SimilarityTemplate(nn.Module):
             raise ValueError('Unknown loss_type')
 
     def compute_loss(self, *batch):
+        """
+        Compute loss for both with auto choose
+        """
 
         if self.loss_type == 'cross_entropy':
 
@@ -151,6 +166,9 @@ class SimilarityTemplate(nn.Module):
             return self.loss(*vectorized_batch), vectorized_batch
 
     def text_embedding(self, x, model_type='query'):
+        """
+        Text embedding with no gradients
+        """
 
         if model_type == 'query':
             model = self.query_model

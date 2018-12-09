@@ -13,6 +13,9 @@ class FullyConnected(nn.Module):
                  activation_function_output=None,
                  dense_layer_prefix='dense',
                  activation_function_prefix='activation'):
+        """
+        Simple FC layer. All you need is set sizes
+        """
 
         super(FullyConnected, self).__init__()
 
@@ -65,6 +68,9 @@ class RNN(nn.Module):
                  dropout=0.,
                  bidirectional=False,
                  output_last_state=True):
+        """
+        Simple RNN layer. All you need is set input_layer_size and hidden_size
+        """
 
         super(RNN, self).__init__()
 
@@ -95,6 +101,9 @@ class RNN(nn.Module):
         self.last_hidden_size = self.hidden_size
 
     def forward(self, x, x_lengths=None):
+        """
+        Pack padded sequence if set x_lengths if you have batch we variable length for better perfomance
+        """
 
         x = x.transpose(0, 1)  # (B,L,D) -> (L,B,D)
 
@@ -125,7 +134,6 @@ class RNN(nn.Module):
 
 
 def gelu(x):
-
     """
     Gaussian Error Linear Unit implementation
     https://arxiv.org/pdf/1606.08415.pdf
@@ -138,6 +146,12 @@ def gelu(x):
 class GELU(nn.Module):
 
     def __init__(self):
+        """
+        Gaussian Error Linear Unit implementation
+        https://arxiv.org/pdf/1606.08415.pdf
+        Used in transformer
+        """
+
         super(GELU, self).__init__()
 
         self.const = 0.044715
@@ -153,8 +167,12 @@ class CNN(nn.Module):
                  out_chanels,
                  kernel_size_convolution,
                  kernel_size_pool=None,
+                 pool_stride=1,
                  pool_layer=nn.MaxPool1d,
                  activation_function=GELU):
+        """
+        Simple CNN1D layer. All you need is set input_size, out_chanels and kernel_size_convolution
+        """
 
         super(CNN, self).__init__()
 
@@ -168,10 +186,13 @@ class CNN(nn.Module):
 
         self.kernel_size_pool = kernel_size_pool if kernel_size_pool is not None else self.kernel_size_convolution
         self.activation_function = activation_function()
-        self.pool_layer = pool_layer(kernel_size=self.kernel_size_pool, stride=1) \
+        self.pool_layer = pool_layer(kernel_size=self.kernel_size_pool, stride=pool_stride) \
             if pool_layer is not None else pool_layer
 
     def forward(self, x, x_lengths=None):
+        """
+        return correct batch with (batch_size x seq_len x input_size)  sizes
+        """
 
         # Turn (batch_size x seq_len x input_size) into (batch_size x input_size x seq_len) for CNN
         x = x.transpose(1, 2)
@@ -207,7 +228,6 @@ class USESimilarity(nn.Module):
     def forward(self, u, v):
 
         sim = 1 - (torch.acos(F.relu(self.cosine(u, v) - self.eps)) / math.pi)
-        # sim = sim.clamp(min=self.eps, max=1-self.eps)
 
         return sim
 

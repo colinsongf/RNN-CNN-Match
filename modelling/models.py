@@ -10,6 +10,12 @@ class DAN(nn.Module):
                  sizes=(300, 256, 128, 100),
                  activation_function=torch.nn.ReLU(),
                  activation_function_output=None):
+        """
+        Deep Average Network
+        from
+        Deep Unordered Composition Rivals Syntactic Methods for Text Classification
+        https://people.cs.umass.edu/~miyyer/pubs/2015_acl_dan.pdf
+        """
 
         super(DAN, self).__init__()
 
@@ -36,6 +42,12 @@ class RNNCNNMatch(nn.Module):
                  cnn_hidden_size=128,
                  cnn_kernel_sizes=tuple(range(1, 6)),
                  kernel_size_pool=4):
+        """
+        RNN-CNN-Match
+        from
+        Neural Matching Models for Question Retrieval and Next Question Prediction in Conversation
+        https://arxiv.org/pdf/1707.05409.pdf
+        """
 
         super(RNNCNNMatch, self).__init__()
 
