@@ -313,7 +313,7 @@ class Wrapper:
 
         is_duplicate = []
 
-        total_n_batches = round(test.shape[0] / batch_size)
+        total_n_batches = round(test.shape[0] / batch_size) + 1
 
         if verbose:
 
@@ -324,8 +324,8 @@ class Wrapper:
             que1 = test.question1[n_batch * batch_size:(n_batch + 1) * batch_size]
             que2 = test.question2[n_batch * batch_size:(n_batch + 1) * batch_size]
 
-            que1 = self.dataset.prepare_batch(que1, qids=False)
-            que2 = self.dataset.prepare_batch(que2, qids=False)
+            que1 = self.dataset.prepare_batch(list(que1), qids=False)
+            que2 = self.dataset.prepare_batch(list(que2), qids=False)
 
             que1 = torch.LongTensor(que1).to(self.device)
             que2 = torch.LongTensor(que2).to(self.device)

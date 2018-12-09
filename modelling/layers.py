@@ -124,6 +124,17 @@ class RNN(nn.Module):
                 return rnn_output
 
 
+def gelu(x):
+
+    """
+    Gaussian Error Linear Unit implementation
+    https://arxiv.org/pdf/1606.08415.pdf
+    Used in transformer
+    """
+
+    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+
+
 class GELU(nn.Module):
 
     def __init__(self):
@@ -221,16 +232,3 @@ class USETripletMarginLoss(nn.Module):
         similarity_negative = self.similarity_function(query, negative_candidate)
 
         return F.relu(self.margin + similarity_positive - similarity_negative).mean()
-
-
-# def gelu(x):
-#
-#     # TODO do as torch class
-#
-#     """
-#     Gaussian Error Linear Unit implementation
-#     https://arxiv.org/pdf/1606.08415.pdf
-#     Used in transformer
-#     """
-#
-#     return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
