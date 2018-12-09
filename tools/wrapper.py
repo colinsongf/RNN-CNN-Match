@@ -375,7 +375,7 @@ class Wrapper:
 
         if verbose:
 
-            pbar = tqdm(total=total_n_batches, desc='Submission'.format(self.epochs_passed + 1))
+            pbar = tqdm(total=total_n_batches - 1, desc='Submission'.format(self.epochs_passed + 1))
 
         for n_batch in range(total_n_batches):
 

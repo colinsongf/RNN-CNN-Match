@@ -75,10 +75,10 @@ class RNNCNNMatch(nn.Module):
                                     kernel_size_pool=self.kernel_size_pool)
                                 for kernel_size in self.cnn_kernel_sizes[1:]])
 
+        self.model = torch.nn.Sequential(*self.layers)
+        
         # TODO do params as hyper
         self.fully_connected = nn.Linear(in_features=896, out_features=300)
-
-        self.model = torch.nn.Sequential(*self.layers)
 
     def forward(self, sample):
 
