@@ -58,7 +58,7 @@ class Wrapper:
 
         self.cross_entropy_negative_k = int(self.batch_size * self.cross_entropy_negative_k_ratio)
 
-        if self.cross_entropy_negative_k == self.batch_size:
+        if self.model.loss_type == 'cross_entropy':
             self.batch_size += self.cross_entropy_negative_k
 
         self.model_name = '{}_{}_with_{}_negatives'.format(self.model_name,
@@ -155,7 +155,7 @@ class Wrapper:
 
             targets = [1 for _ in range(len(positive_candidates))] + [0 for _ in range(len(negative_candidates))]
 
-            queries *= math.ceil(2 + self.cross_entropy_negative_k_ratio)
+            queries *= (math.ceil(2 + self.cross_entropy_negative_k_ratio) + 1)
             queries = queries[:len(targets)]
 
             candidates = positive_candidates + negative_candidates
@@ -234,7 +234,10 @@ class Wrapper:
 
             if verbose:
 
-                total_n_batches = len(self.dataset.train) // self.batch_size
+                if self.model.loss_type == 'cross_entropy':
+                    total_n_batches = len(self.dataset.train) // (self.batch_size - self.cross_entropy_negative_k)
+                else:
+                    total_n_batches = len(self.dataset.train) // self.batch_size
 
                 pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(self.epochs_passed + 1))
 
