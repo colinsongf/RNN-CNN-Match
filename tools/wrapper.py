@@ -71,6 +71,7 @@ class Wrapper:
         self.validation_recalls = []
 
         self.best_mean_loss = 1000
+        self.validation_best_mean_loss = 1000
 
     def get_random_negatives(self, samples=None):
 
@@ -236,10 +237,6 @@ class Wrapper:
             self.epoch_mean_losses.append(np.mean(batch_losses))
             self.epoch_mean_recalls.append(np.mean(batch_recalls))
 
-            if save_best and self.epoch_mean_losses[-1] < self.best_mean_loss:
-                self.best_mean_loss = self.epoch_mean_losses[-1]
-                self.save_model()
-
             validation_epoch_mean_loss = []
             validation_epoch_mean_recalls = []
 
@@ -256,6 +253,14 @@ class Wrapper:
 
             self.validation_losses.append(np.mean(validation_epoch_mean_loss))
             self.validation_recalls.append(np.mean(validation_epoch_mean_recalls))
+
+            # if save_best and self.epoch_mean_losses[-1] < self.best_mean_loss:
+            #     self.best_mean_loss = self.epoch_mean_losses[-1]
+            #     self.save_model()
+
+            if save_best and self.validation_losses[-1] < self.best_mean_loss:
+                self.best_mean_loss = self.validation_losses[-1]
+                self.save_model()
 
             if verbose:
                 pbar.close()
@@ -307,7 +312,10 @@ class Wrapper:
         if save:
             plt.savefig('images/{}'.format(title))
 
-    def submission(self, path='submission.csv', batch_size=2048, verbose=False):
+    def submission(self, path=None, batch_size=2048, verbose=False):
+
+        if path is None:
+            path = '{}_submission.csv'.format(self.model_name)
 
         test, submission = self.dataset.get_test_submission
 
