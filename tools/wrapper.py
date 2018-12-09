@@ -57,6 +57,10 @@ class Wrapper:
         if self.cross_entropy_negative_k == self.batch_size:
             self.batch_size += self.cross_entropy_negative_k
 
+        self.model_name = '{}_{}_with_{}_negatives'.format(self.model_name,
+                                                           self.model.loss_type,
+                                                           self.generate_negatives_type)
+
         self.losses = []
         self.recalls = []
         self.epoch_mean_losses = []
@@ -65,6 +69,8 @@ class Wrapper:
 
         self.validation_losses = []
         self.validation_recalls = []
+
+        self.best_mean_loss = 1000
 
     def get_random_negatives(self, samples=None):
 
@@ -178,17 +184,18 @@ class Wrapper:
         elif self.model.loss_type == 'triplet':
             return self.__triplet_batch_generator__(data=data, batch_size=batch_size)
 
-    def compute_loss_recall(self, batch):
+    def compute_loss_recall(self, batch, validation=False):
 
         loss, vectorized_batch = self.model.compute_loss(*batch)
-        recall = self.model.compute_recall(*vectorized_batch)
+        recall = self.model.compute_recall(*vectorized_batch, mean=not validation)
 
         return loss, recall
 
     def train(self,
               epochs=5,
               negatives_type=None,
-              verbose=False):
+              verbose=False,
+              save_best=False):
 
         self.generate_negatives_type = negatives_type if negatives_type is not None else self.generate_negatives_type
 
@@ -216,10 +223,6 @@ class Wrapper:
                 self.optimizer.zero_grad()
                 loss.backward()
 
-                # # maybe is not necessary
-                # if self.model.loss_type == 'cross_entropy':
-                #     # TODO max as hyperparameter
-
                 if self.max_norm is not None:
                     torch.nn.utils.clip_grad.clip_grad_norm(self.model.parameters(), max_norm=self.max_norm)
 
@@ -233,8 +236,12 @@ class Wrapper:
             self.epoch_mean_losses.append(np.mean(batch_losses))
             self.epoch_mean_recalls.append(np.mean(batch_recalls))
 
+            if save_best and self.epoch_mean_losses[-1] < self.best_mean_loss:
+                self.best_mean_loss = self.epoch_mean_losses[-1]
+                self.save_model()
+
             validation_epoch_mean_loss = []
-            validation_epoch_mean_recall = []
+            validation_epoch_mean_recalls = []
 
             validation_batch_size = self.batch_size * self.validation_batch_size_multiplier
 
@@ -242,13 +249,13 @@ class Wrapper:
 
                 with torch.no_grad():
 
-                    validation_loss, validation_recall = self.compute_loss_recall(batch)
+                    validation_loss, validation_recall = self.compute_loss_recall(batch, validation=True)
 
                     validation_epoch_mean_loss.append(validation_loss.item())
-                    validation_epoch_mean_recall.append(validation_recall)
+                    validation_epoch_mean_recalls.extend(validation_recall)
 
             self.validation_losses.append(np.mean(validation_epoch_mean_loss))
-            self.validation_recalls.append(np.mean(validation_epoch_mean_recall))
+            self.validation_recalls.append(np.mean(validation_epoch_mean_recalls))
 
             if verbose:
                 pbar.close()
@@ -279,11 +286,16 @@ class Wrapper:
         if verbose:
             self.plot(self.losses, save=True)
 
+    def save_model(self, path=None):
+
+        path = path if path is not None else self.model_name
+
+        # TODO add more info about model
+        torch.save(self.model, path)
+
     def plot(self, data, title=None, xlabel='iter', ylabel='loss', figsize=(16, 14), save=True):
 
-        title = title if title is not None else '{} {} with {} negatives'.format(self.model_name,
-                                                                                 self.model.loss_type,
-                                                                                 self.generate_negatives_type)
+        title = title if title is not None else self.model_name
 
         plt.figure(figsize=figsize)
         plt.plot(data)
@@ -295,13 +307,19 @@ class Wrapper:
         if save:
             plt.savefig('images/{}'.format(title))
 
-    def submission(self, path='submission.csv', batch_size=2048):
+    def submission(self, path='submission.csv', batch_size=2048, verbose=False):
 
         test, submission = self.dataset.get_test_submission
 
         is_duplicate = []
 
-        for n_batch in range(round(test.shape[0] / batch_size)):
+        total_n_batches = round(test.shape[0] / batch_size)
+
+        if verbose:
+
+            pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(self.epochs_passed + 1))
+
+        for n_batch in range(total_n_batches):
 
             que1 = test.question1[n_batch * batch_size:(n_batch + 1) * batch_size]
             que2 = test.question2[n_batch * batch_size:(n_batch + 1) * batch_size]
@@ -312,11 +330,17 @@ class Wrapper:
             que1 = torch.LongTensor(que1).to(self.device)
             que2 = torch.LongTensor(que2).to(self.device)
 
+            que1 = self.model.text_embedding(que1)
+            que2 = self.model.text_embedding(que2)
+
             similarity = self.model.similarity_function(que1, que2)
 
             similarity = torch.nn.functional.relu(similarity - self.model.eps).cpu().numpy()
 
             is_duplicate.extend([float(sim) for sim in similarity])
+
+            if verbose:
+                pbar.update(1)
 
         submission.is_duplicate = is_duplicate
 

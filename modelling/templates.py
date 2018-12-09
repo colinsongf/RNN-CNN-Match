@@ -84,13 +84,16 @@ class SimilarityTemplate(nn.Module):
 
         return inputs
 
-    def __compute_recall_cross_entropy__(self, query, candidate, target):
+    def __compute_recall_cross_entropy__(self, query, candidate, target, mean=True):
 
         similarity = self.similarity_function(query, candidate).round()
 
-        return float((similarity == target).type(torch.FloatTensor).mean().cpu().numpy())
+        if mean:
+            return float((similarity == target).type(torch.FloatTensor).mean().cpu().numpy())
+        else:
+            return [float(sample) for sample in (similarity == target).type(torch.FloatTensor).cpu().numpy()]
 
-    def __compute_recall_triplet__(self, query, positive_candidate, negative_candidate):
+    def __compute_recall_triplet__(self, query, positive_candidate, negative_candidate, mean=True):
         """
         Compute probability at which similarity_function(query, negative_candidate) is greater than
         similarity_function(queries, positive_candidate)
@@ -99,9 +102,13 @@ class SimilarityTemplate(nn.Module):
         similarity_positive = self.similarity_function(query, positive_candidate)
         similarity_negative = self.similarity_function(query, negative_candidate)
 
-        return float((similarity_positive > similarity_negative).type(torch.FloatTensor).mean().cpu().numpy())
+        if mean:
+            return float((similarity_positive > similarity_negative).type(torch.FloatTensor).mean().cpu().numpy())
+        else:
+            return [float(sample) for sample in
+                    (similarity_positive > similarity_negative).type(torch.FloatTensor).cpu().numpy()]
 
-    def compute_recall(self, *batch, vectorize=False):
+    def compute_recall(self, *batch, vectorize=False, mean=True):
 
         if vectorize:
 
@@ -115,9 +122,9 @@ class SimilarityTemplate(nn.Module):
                     batch = self.forward(*batch)
 
         if self.loss_type == 'cross_entropy':
-            return self.__compute_recall_cross_entropy__(*batch)
+            return self.__compute_recall_cross_entropy__(*batch, mean=mean)
         elif self.loss_type == 'triplet':
-            return self.__compute_recall_triplet__(*batch)
+            return self.__compute_recall_triplet__(*batch, mean=mean)
         else:
             raise ValueError('Unknown loss_type')
 
@@ -128,11 +135,9 @@ class SimilarityTemplate(nn.Module):
             query, candidate = self.forward(query=batch[0], candidate=batch[1])
 
             target = batch[2]
-            # target = torch.Tensor(batch[2]).to(self.device)
 
             # solve Assertion `x >= 0. && x <= 1.' failed. input value should be between 0~1, but got 1.000000
-            # occurs at the beginning of training
-            # similarity = self.similarity_function(query, candidate).clamp(min=self.eps, max=1-self.eps)
+            # occurs at the beginning of training because softmax
             similarity = F.relu(self.similarity_function(query, candidate) - self.eps)
 
             vectorized_batch = [query, candidate, target]
