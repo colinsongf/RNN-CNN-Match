@@ -16,13 +16,14 @@ class Wrapper:
                  model,
                  optimizer,
                  model_name='default_model',
+                 max_norm=None,
                  batch_size=32,
                  cross_entropy_negative_k_ratio=1.0,
                  validation_batch_size_multiplier=10,
                  generate_negatives_type='random',
                  hard_negatives_multiplier=5,
                  max_hard_negatives=10000,
-                 hard_k_next=False):
+                 hard_k_next=True):
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -33,6 +34,8 @@ class Wrapper:
         self.optimizer = optimizer
 
         self.model_name = model_name
+
+        self.max_norm = max_norm
 
         self.batch_size = batch_size
 
@@ -63,36 +66,23 @@ class Wrapper:
         self.validation_losses = []
         self.validation_recalls = []
 
-    # def convert_batch(self, *batch):
-    #
-    #     batch = [torch.LongTensor(part).to(self.device) for part in batch]
-    #
-    #     return batch
-
     def get_random_negatives(self, samples=None):
 
         samples = samples if samples is not None else self.batch_size
 
         random_qids = random.sample(self.dataset.qid2question.keys(), samples)
 
-        # return self.dataset.qids2questions(batch=random_qids)
         return self.dataset.prepare_batch(batch=random_qids)
 
     def get_hard_negatives(self, queries, samples):
 
         samples = int(min(samples, self.max_hard_negatives))
 
-        # negatives = self.get_random_negatives(samples=samples)
-
         negatives_qids = random.sample(self.dataset.qid2question.keys(), samples)
 
-        # negatives = self.dataset.qids2questions(batch=negatives_qids)
         negatives = self.dataset.prepare_batch(negatives_qids)
 
-        # query_vactorized = self.model.text_embedding(x=queries)
         query_vactorized = self.model.text_embedding(x=torch.LongTensor(queries).to(self.device))
-
-        # negatives_vectorized = self.model.text_embedding(x=negatives, model_type='candidate')
 
         negatives_vectorized = self.model.text_embedding(x=torch.LongTensor(negatives).to(self.device),
                                                          model_type='candidate')
@@ -155,8 +145,6 @@ class Wrapper:
             yield torch.LongTensor(queries).to(self.device), \
                   torch.LongTensor(candidates).to(self.device),\
                   torch.Tensor(targets).to(self.device)
-            # yield self.convert_batch(queries, candidates, targets)
-            # yield queries, candidates, targets
 
     def __triplet_batch_generator__(self, data, batch_size):
 
@@ -179,8 +167,6 @@ class Wrapper:
             yield torch.LongTensor(queries).to(self.device), \
                   torch.LongTensor(positive_candidates).to(self.device), \
                   torch.LongTensor(negative_candidates).to(self.device)
-            # yield self.convert_batch(queries, positive_candidates, negative_candidates)
-            # yield queries, positive_candidates, negative_candidates
 
     def batch_generator(self, data_type='train', batch_size=None):
 
@@ -219,9 +205,6 @@ class Wrapper:
 
             for batch in self.batch_generator(data_type='train'):
 
-                # loss, vectorized_batch = self.model.compute_loss(*batch)
-                # recall = self.model.compute_recall(*vectorized_batch)
-
                 loss, recall = self.compute_loss_recall(batch)
 
                 batch_recalls.append(recall)
@@ -233,10 +216,12 @@ class Wrapper:
                 self.optimizer.zero_grad()
                 loss.backward()
 
-                # maybe is not necessary
-                if self.model.loss_type == 'cross_entropy':
-                    # TODO max as hyperparameter
-                    torch.nn.utils.clip_grad.clip_grad_value_(self.model.parameters(), 0.7)
+                # # maybe is not necessary
+                # if self.model.loss_type == 'cross_entropy':
+                #     # TODO max as hyperparameter
+
+                if self.max_norm is not None:
+                    torch.nn.utils.clip_grad.clip_grad_norm(self.model.parameters(), max_norm=self.max_norm)
 
                 self.optimizer.step()
 
@@ -256,9 +241,6 @@ class Wrapper:
             for batch in self.batch_generator(data_type='validation', batch_size=validation_batch_size):
 
                 with torch.no_grad():
-
-                    # validation_loss, vectorized_batch = self.model.compute_loss(*batch)
-                    # validation_recall = self.model.compute_recall(*vectorized_batch)
 
                     validation_loss, validation_recall = self.compute_loss_recall(batch)
 
@@ -313,6 +295,29 @@ class Wrapper:
         if save:
             plt.savefig('images/{}'.format(title))
 
-    def submission(self, path='submission.csv'):
+    def submission(self, path='submission.csv', batch_size=2048):
 
-        pass
+        test, submission = self.dataset.get_test_submission
+
+        is_duplicate = []
+
+        for n_batch in range(round(test.shape[0] / batch_size)):
+
+            que1 = test.question1[n_batch * batch_size:(n_batch + 1) * batch_size]
+            que2 = test.question2[n_batch * batch_size:(n_batch + 1) * batch_size]
+
+            que1 = self.dataset.prepare_batch(que1, qids=False)
+            que2 = self.dataset.prepare_batch(que2, qids=False)
+
+            que1 = torch.LongTensor(que1).to(self.device)
+            que2 = torch.LongTensor(que2).to(self.device)
+
+            similarity = self.model.similarity_function(que1, que2)
+
+            similarity = torch.nn.functional.relu(similarity - self.model.eps).cpu().numpy()
+
+            is_duplicate.extend([float(sim) for sim in similarity])
+
+        submission.is_duplicate = is_duplicate
+
+        submission.to_csv(path)

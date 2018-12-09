@@ -324,7 +324,7 @@ class USESimilarity(nn.Module):
 
     def forward(self, u, v):
 
-        sim = 1 - (torch.acos(self.cosine(u, v) - self.eps) / math.pi)
+        sim = 1 - (torch.acos(F.relu(self.cosine(u, v) - self.eps)) / math.pi)
         # sim = sim.clamp(min=self.eps, max=1-self.eps)
 
         return sim

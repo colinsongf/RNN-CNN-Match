@@ -73,9 +73,10 @@ class DatasetQuora:
 
         return [self.qid2question[sample] for sample in batch]
 
-    def prepare_batch(self, batch):
+    def prepare_batch(self, batch, qids=True):
 
-        batch = self.qids2questions(batch=batch)
+        if qids:
+            batch = self.qids2questions(batch=batch)
 
         for n_sample in range(len(batch)):
 
@@ -173,5 +174,9 @@ class DatasetQuora:
 
         test.question1 = test.question1.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
         test.question2 = test.question2.map(lambda x: self.__prepare_text__(text=x, data_type='test'))
+
+        test.reset_index(inplace=True, drop=True)
+
+        sample_submission.is_duplicate = sample_submission.is_duplicate.astype('float')
 
         return test, sample_submission
