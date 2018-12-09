@@ -17,8 +17,8 @@ class Wrapper:
                  model,
                  optimizer,
                  model_name='default_model',
-                 max_norm=None,
                  batch_size=32,
+                 max_norm=None,
                  cross_entropy_negative_k_ratio=1.0,
                  validation_batch_size_multiplier=10,
                  generate_negatives_type='random',
@@ -27,6 +27,18 @@ class Wrapper:
                  hard_k_next=True):
         """
         Init params
+        :param dataset:
+        :param model:
+        :param optimizer:
+        :param model_name:
+        :param batch_size:
+        :param max_norm: for gradient clipping, if None - not used
+        :param cross_entropy_negative_k_ratio: for example: if set 0.5 batch_size = batch_size_positive + 0.5 negative
+        :param validation_batch_size_multiplier: how bigger validation_batch_size then batch_size
+        :param generate_negatives_type: available types - random and hard
+        :param hard_negatives_multiplier: how many hard negatives (batch_size * hard_negatives_multiplier) we select
+        :param max_hard_negatives: to solve memory leak problem
+        :param hard_k_next: if we wont not max relevant negative
         """
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -39,9 +51,8 @@ class Wrapper:
 
         self.model_name = model_name
 
-        self.max_norm = max_norm
-
         self.batch_size = batch_size
+        self.max_norm = max_norm
 
         self.cross_entropy_negative_k_ratio = cross_entropy_negative_k_ratio
         self.validation_batch_size_multiplier = validation_batch_size_multiplier
@@ -234,10 +245,7 @@ class Wrapper:
 
             if verbose:
 
-                if self.model.loss_type == 'cross_entropy':
-                    total_n_batches = len(self.dataset.train) // (self.batch_size - self.cross_entropy_negative_k)
-                else:
-                    total_n_batches = len(self.dataset.train) // self.batch_size
+                total_n_batches = len(self.dataset.train) // self.batch_size
 
                 pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(self.epochs_passed + 1))
 
@@ -367,7 +375,7 @@ class Wrapper:
 
         if verbose:
 
-            pbar = tqdm(total=total_n_batches, desc='Train Epoch {}'.format(self.epochs_passed + 1))
+            pbar = tqdm(total=total_n_batches, desc='Submission'.format(self.epochs_passed + 1))
 
         for n_batch in range(total_n_batches):
 
