@@ -154,10 +154,20 @@ class Wrapper:
 
             targets = [1 for _ in range(len(positive_candidates))] + [0 for _ in range(len(negative_candidates))]
 
-            queries *= 2
+            # queries *= 2
+
+            true_queries = queries[:]
+
+            while len(queries) != len(targets):
+
+                for q in queries:
+                    true_queries.append(q)
+
+            queries = true_queries
+
             candidates = positive_candidates + negative_candidates
 
-            indexes = list(range(len(queries)))
+            indexes = list(range(len(targets)))
             random.shuffle(indexes)
 
             queries = [queries[index] for index in indexes]
