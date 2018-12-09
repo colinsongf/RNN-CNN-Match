@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from tqdm import tqdm
+import math
 import random
 try:
     import telegram_send
@@ -154,16 +155,8 @@ class Wrapper:
 
             targets = [1 for _ in range(len(positive_candidates))] + [0 for _ in range(len(negative_candidates))]
 
-            # queries *= 2
-
-            true_queries = queries[:]
-
-            while len(queries) != len(targets):
-
-                for q in queries:
-                    true_queries.append(q)
-
-            queries = true_queries
+            queries *= math.ceil(2 + self.cross_entropy_negative_k_ratio)
+            queries = queries[:len(targets)]
 
             candidates = positive_candidates + negative_candidates
 
