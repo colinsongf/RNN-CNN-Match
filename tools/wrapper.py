@@ -16,34 +16,34 @@ class Wrapper:
                  model,
                  optimizer,
                  model_name='default_model',
-                 batch_size=256,
+                 batch_size=32,
                  cross_entropy_negative_k_ratio=1.0,
+                 validation_batch_size_multiplier=10,
                  generate_negatives_type='random',
-                 hard_negatives_multiplier=3,
-                 hard_k_next=False,
-                 embeddings_type='pretrained',
-                 embeddings_weight_file=None):
+                 hard_negatives_multiplier=5,
+                 max_hard_negatives=10000,
+                 hard_k_next=False):
 
-        super(Wrapper, self).__init__()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.available_embeddings_types = ['trainable', 'pretrained']
         self.available_generate_negatives_types = ['random', 'hard']
 
         self.dataset = dataset
         self.model = model
         self.optimizer = optimizer
-        self.model_name = model_name
-        self.batch_size = batch_size
-        self.cross_entropy_negative_k_ratio = cross_entropy_negative_k_ratio
-        self.embeddings_type = embeddings_type
-        self.embeddings_weight_file = embeddings_weight_file
-        self.generate_negatives_type = generate_negatives_type
-        self.hard_negatives_multiplier = hard_negatives_multiplier
-        self.hard_k_next = hard_k_next
 
-        if self.embeddings_type not in self.available_embeddings_types:
-            raise ValueError('Unknown embeddings_type. Available: {}'.format(', '.join(
-                self.available_embeddings_types)))
+        self.model_name = model_name
+
+        self.batch_size = batch_size
+
+        self.cross_entropy_negative_k_ratio = cross_entropy_negative_k_ratio
+        self.validation_batch_size_multiplier = validation_batch_size_multiplier
+
+        self.generate_negatives_type = generate_negatives_type
+
+        self.hard_negatives_multiplier = hard_negatives_multiplier
+        self.max_hard_negatives = max_hard_negatives
+        self.hard_k_next = hard_k_next
 
         if self.generate_negatives_type not in self.available_generate_negatives_types:
             raise ValueError('Unknown generate_negatives_type. Available: {}'.format(', '.join(
@@ -63,38 +63,11 @@ class Wrapper:
         self.validation_losses = []
         self.validation_recalls = []
 
-    def collect_data(self, embeddings_weight_file=None):
-
-        self.embeddings_weight_file = embeddings_weight_file if embeddings_weight_file is not None \
-            else self.embeddings_weight_file
-
-        self.dataset.collect()
-
-        if self.embeddings_type == 'trainable' or self.dataset.word_indexing:
-
-            embedding_layers_params = {
-                'embeddings_type': self.embeddings_type,
-                'vocab_size': len(self.dataset.vocabulary),
-                'token2index': self.dataset.vocabulary.get_tokens2index,
-                'index2token': self.dataset.vocabulary.index2token,
-                'pad_token': self.dataset.vocabulary.pad_token,
-                'pad_index': self.dataset.vocabulary[self.dataset.vocabulary.pad_token]
-            }
-
-        else:
-
-            if self.embeddings_weight_file is None:
-                raise ValueError('Need define embeddings_weight_file')
-
-            embedding_layers_params = {
-                'embeddings_type': self.embeddings_type,
-                'weight_file': self.embeddings_weight_file
-            }
-
-        self.model.query_embedding_layer.set_embeddings(**embedding_layers_params)
-
-        if not self.model.embedding_layer_same:
-            self.model.candidate_embedding_layer.set_embeddings(**embedding_layers_params)
+    # def convert_batch(self, *batch):
+    #
+    #     batch = [torch.LongTensor(part).to(self.device) for part in batch]
+    #
+    #     return batch
 
     def get_random_negatives(self, samples=None):
 
@@ -102,17 +75,28 @@ class Wrapper:
 
         random_qids = random.sample(self.dataset.qid2question.keys(), samples)
 
-        return self.dataset.qids2questions(batch=random_qids)
+        # return self.dataset.qids2questions(batch=random_qids)
+        return self.dataset.prepare_batch(batch=random_qids)
 
     def get_hard_negatives(self, queries, samples):
 
-        samples = int(samples)
+        samples = int(min(samples, self.max_hard_negatives))
 
-        negatives = self.get_random_negatives(samples=samples)
+        # negatives = self.get_random_negatives(samples=samples)
 
-        query_vactorized = self.model.text_embedding(x=queries)
+        negatives_qids = random.sample(self.dataset.qid2question.keys(), samples)
 
-        negatives_vectorized = self.model.text_embedding(x=negatives, model_type='candidate')
+        # negatives = self.dataset.qids2questions(batch=negatives_qids)
+        negatives = self.dataset.prepare_batch(negatives_qids)
+
+        # query_vactorized = self.model.text_embedding(x=queries)
+        query_vactorized = self.model.text_embedding(x=torch.LongTensor(queries).to(self.device))
+
+        # negatives_vectorized = self.model.text_embedding(x=negatives, model_type='candidate')
+
+        negatives_vectorized = self.model.text_embedding(x=torch.LongTensor(negatives).to(self.device),
+                                                         model_type='candidate')
+
         attention = torch.matmul(query_vactorized, negatives_vectorized.transpose(0, 1))
 
         if self.hard_k_next:
@@ -130,16 +114,16 @@ class Wrapper:
 
         max_attentive_indexes = list(attention.argmax(dim=1).cpu().numpy())
 
-        max_attentive = [negatives[n] for n in max_attentive_indexes]
+        max_attentive_qids = [negatives_qids[n] for n in max_attentive_indexes]
 
-        return max_attentive
+        return self.dataset.prepare_batch(max_attentive_qids)
 
     def __generate_negatives__(self, queries, batch_size):
 
         if self.generate_negatives_type == 'random':
             return self.get_random_negatives(samples=batch_size)
         else:
-            return self.get_hard_negatives(queries=queries, samples=batch_size*self.hard_negatives_multiplier)
+            return self.get_hard_negatives(queries=queries, samples=batch_size * self.hard_negatives_multiplier)
 
     def __cross_entropy_batch_generator__(self, data, batch_size):
 
@@ -147,9 +131,11 @@ class Wrapper:
 
         for n_batch in range(round(len(data) / batch_size)):
 
-            queries, positive_candidates = self.__get_samples__(data=data,
-                                                                start=n_batch*positives_batch_size,
-                                                                stop=(n_batch+1)*positives_batch_size)
+            queries = self.dataset.prepare_batch(
+                data[n_batch*positives_batch_size:(n_batch+1)*positives_batch_size].qid1)
+
+            positive_candidates = self.dataset.prepare_batch(
+                data[n_batch*positives_batch_size:(n_batch+1)*positives_batch_size].qid2)
 
             negative_candidates = self.__generate_negatives__(queries=queries,
                                                               batch_size=self.cross_entropy_negative_k)
@@ -166,15 +152,19 @@ class Wrapper:
             candidates = [candidates[index] for index in indexes]
             targets = [targets[index] for index in indexes]
 
-            yield queries, candidates, targets
+            yield torch.LongTensor(queries).to(self.device), \
+                  torch.LongTensor(candidates).to(self.device),\
+                  torch.Tensor(targets).to(self.device)
+            # yield self.convert_batch(queries, candidates, targets)
+            # yield queries, candidates, targets
 
     def __triplet_batch_generator__(self, data, batch_size):
 
         for n_batch in range(round(len(data) / batch_size)):
 
-            queries, positive_candidates = self.__get_samples__(data=data,
-                                                                start=n_batch*batch_size,
-                                                                stop=(n_batch+1)*batch_size)
+            queries = self.dataset.prepare_batch(data[n_batch*batch_size:(n_batch+1)*batch_size].qid1)
+
+            positive_candidates = self.dataset.prepare_batch(data[n_batch*batch_size:(n_batch+1)*batch_size].qid2)
 
             negative_candidates = self.__generate_negatives__(queries=queries,
                                                               batch_size=batch_size)
@@ -186,7 +176,11 @@ class Wrapper:
             positive_candidates = [positive_candidates[index] for index in indexes]
             negative_candidates = [negative_candidates[index] for index in indexes]
 
-            yield queries, positive_candidates, negative_candidates
+            yield torch.LongTensor(queries).to(self.device), \
+                  torch.LongTensor(positive_candidates).to(self.device), \
+                  torch.LongTensor(negative_candidates).to(self.device)
+            # yield self.convert_batch(queries, positive_candidates, negative_candidates)
+            # yield queries, positive_candidates, negative_candidates
 
     def batch_generator(self, data_type='train', batch_size=None):
 
@@ -204,22 +198,6 @@ class Wrapper:
         recall = self.model.compute_recall(*vectorized_batch)
 
         return loss, recall
-
-    # def indexing(self, batch, model_type='query'):
-    #
-    #     return self.model.__dict__['{}_embedding_layer'.format(model_type)].indexing(batch)
-
-    def __get_samples__(self, data, start, stop):
-
-        tmp_data = data[start:stop]
-
-        queries = self.dataset.qids2questions(tmp_data.qid1)
-        positive_candidates = self.dataset.qids2questions(tmp_data.qid2)
-
-        # queries = self.indexing(batch=queries)
-        # positive_candidates = self.indexing(batch=positive_candidates, model_type='candidate')
-
-        return queries, positive_candidates
 
     def train(self,
               epochs=5,
@@ -254,6 +232,12 @@ class Wrapper:
 
                 self.optimizer.zero_grad()
                 loss.backward()
+
+                # maybe is not necessary
+                if self.model.loss_type == 'cross_entropy':
+                    # TODO max as hyperparameter
+                    torch.nn.utils.clip_grad.clip_grad_value_(self.model.parameters(), 1.0)
+
                 self.optimizer.step()
 
                 if verbose:
@@ -267,7 +251,9 @@ class Wrapper:
             validation_epoch_mean_loss = []
             validation_epoch_mean_recall = []
 
-            for batch in self.batch_generator(data_type='validation', batch_size=self.batch_size*5):
+            validation_batch_size = self.batch_size * self.validation_batch_size_multiplier
+
+            for batch in self.batch_generator(data_type='validation', batch_size=validation_batch_size):
 
                 with torch.no_grad():
 
@@ -311,10 +297,11 @@ class Wrapper:
         if verbose:
             self.plot(self.losses, save=True)
 
-    def plot(self, data, title=None, xlabel='iter', ylabel='loss', figsize=(16, 14), save=False):
+    def plot(self, data, title=None, xlabel='iter', ylabel='loss', figsize=(16, 14), save=True):
 
-        title = title if title is not None else '{} with {} negatives'.format(self.model_name,
-                                                                              self.generate_negatives_type)
+        title = title if title is not None else '{} {} with {} negatives'.format(self.model_name,
+                                                                                 self.model.loss_type,
+                                                                                 self.generate_negatives_type)
 
         plt.figure(figsize=figsize)
         plt.plot(data)

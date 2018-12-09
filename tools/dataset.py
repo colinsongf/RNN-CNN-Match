@@ -3,6 +3,9 @@ from sklearn.model_selection import train_test_split
 import nltk
 from tools.cleaner import Cleaner
 from tools.vocabulary import Vocabulary
+import numpy as np
+from tqdm import tqdm
+import torch
 
 
 class DatasetQuora:
@@ -11,82 +14,118 @@ class DatasetQuora:
                  train_file,
                  test_file,
                  sample_submission_file,
-                 sentence_max_length=32,
-                 word_indexing=False,
+                 sequence_max_length=32,
                  padding_after=True,
+                 pad_token='PAD',
+                 pad_index=0,
                  validation_size=0.2,
                  shuffle=True,
                  text_fillna='what?'):
 
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         self.train_file = train_file
         self.test_file = test_file
         self.sample_submission_file = sample_submission_file
-        self.word_indexing = word_indexing
+
+        self.sequence_max_length = sequence_max_length
+
+        self.padding_after = padding_after
+        self.pad_token = pad_token
+        self.pad_index = pad_index
+
         self.validation_size = validation_size
         self.shuffle = shuffle
         self.text_fillna = text_fillna
 
-        self.qid2question = {}
-
         self.cleaner = Cleaner()
 
-        if self.word_indexing:
-            self.vocabulary = Vocabulary(sentence_max_length=sentence_max_length,
-                                         padding_after=padding_after,
-                                         name='quora_question_pairs',
-                                         sos_token=None,
-                                         eos_token=None)
-        else:
-            self.vocabulary = None
+        # if self.word_indexing:
+        #     self.vocabulary = Vocabulary(sentence_max_length=sentence_max_length,
+        #                                  padding_after=padding_after,
+        #                                  name='quora_question_pairs',
+        #                                  sos_token=None,
+        #                                  eos_token=None)
+        # else:
+        #     self.vocabulary = None
+
+        self.qid2question = {}
+        self.token2index = {}
+        self.index2token = {}
 
         self.train = None
         self.validation = None
 
-    def __word_indexing__(self, text, data_type='train'):
+        self.collect()
 
-        if data_type == 'train':
-            try:
-                text = self.vocabulary.collect(input_data=text, output=True, tokenize=True, padding_for_output=True)
-            except Exception:
-                text = [self.vocabulary.pad_token]
-        else:
-            try:
-                text = self.vocabulary.sentence2indexes(input_data=text, tokenize=True, padding=True)
-            except Exception:
-                text = [self.vocabulary.pad_token]
-
-        return text
+    # def __word_indexing__(self, text, data_type='train'):
+    #
+    #     # if data_type == 'train':
+    #     #     try:
+    #     #         text = self.vocabulary.collect(input_data=text, output=True, tokenize=True, padding_for_output=True)
+    #     #     except Exception:
+    #     #         text = [self.vocabulary.pad_token]
+    #     # else:
+    #     #     try:
+    #     #         text = self.vocabulary.sentence2indexes(input_data=text, tokenize=True, padding=True)
+    #     #     except Exception:
+    #     #         text = [self.vocabulary.pad_token]
+    #
+    #     return text
 
     def __prepare_text__(self, text, data_type='train'):
 
         text = self.cleaner.clean(x=text)
 
-        if self.word_indexing:
-            text = self.__word_indexing__(text=text, data_type=data_type)
-        else:
-            text = nltk.tokenize.wordpunct_tokenize(text=text)
-
         if not text:
             text = [self.text_fillna]
 
+        text = nltk.tokenize.wordpunct_tokenize(text=text)
+
+        if data_type == 'train':
+
+            for token in text:
+
+                index = len(self.token2index)
+
+                if token not in self.token2index:
+                    self.token2index[token] = index
+                    self.index2token[index] = token
+
         return text
-
-    @property
-    def existing_words(self):
-
-        return list(self.vocabulary.token2index.keys())
 
     def qids2questions(self, batch):
 
         return [self.qid2question[sample] for sample in batch]
 
+    def prepare_batch(self, batch):
+
+        batch = self.qids2questions(batch=batch)
+
+        for n_sample in range(len(batch)):
+
+            tokens = batch[n_sample]
+
+            tokens = [self.token2index[token] for token in tokens if token in self.token2index]
+
+            tokens = tokens[:self.sequence_max_length]
+
+            if len(tokens) < self.sequence_max_length:
+
+                pads = [self.pad_index] * (self.sequence_max_length - len(tokens))
+
+                if self.padding_after:
+                    tokens = tokens + pads
+                else:
+                    tokens = pads + tokens
+
+            batch[n_sample] = tokens
+
+        return batch
+
     def collect(self):
 
         train_data = pd.read_csv(self.train_file, index_col='id')
-
-        # qids = list(train_data.qid1) + list(train_data.qid2)
-        # qids = list(set(qids))
-        # qids.sort()
 
         train_data.question1 = train_data.question1.map(lambda x: self.__prepare_text__(text=x, data_type='train'))
         train_data.question2 = train_data.question2.map(lambda x: self.__prepare_text__(text=x, data_type='train'))
@@ -109,6 +148,45 @@ class DatasetQuora:
         self.train, self.validation = train_test_split(train_data,
                                                        test_size=self.validation_size,
                                                        shuffle=self.shuffle)
+
+    def load_pretrained_embeddings(self, embedding_weight_file, embedding_size=300, verbose=False):
+
+        self.token2index = {
+            self.pad_token: self.pad_index
+        }
+
+        self.index2token = {
+            self.pad_index: self.pad_token
+        }
+
+        embedding_matrix = [np.zeros(shape=(embedding_size,))]
+
+        with open(file=embedding_weight_file, mode='r', encoding='utf-8', errors='ignore') as file:
+
+            index = len(self.token2index)
+
+            lines = tqdm(file.readlines(), desc='Collect embeddings') if verbose else file.readlines()
+
+            for line in lines:
+
+                line = line.split()
+
+                token = ' '.join(line[:-embedding_size])
+                embeddings = np.asarray(line[-embedding_size:], dtype='float32')
+
+                if not token or embeddings.shape[0] != embedding_size:
+                    continue
+
+                self.token2index[token] = index
+                self.index2token[index] = token
+
+                embedding_matrix.append(embeddings)
+
+                index += 1
+
+        return embedding_matrix
+
+        # self.embedding_layer = torch.nn.Embedding.from_pretrained(torch.Tensor(embedding_matrix)).to(self.device)
 
     @property
     def get_test_submission(self):

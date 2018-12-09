@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from modelling.layers import Embedding, USESimilarity, USETripletMarginLoss
+from modelling.layers import USESimilarity, USETripletMarginLoss
 
 
 # TODO implement some of this https://www.jeremyjordan.me/nn-learning-rate/ or use lr finder from fast.ai
@@ -12,37 +12,52 @@ class SimilarityTemplate(nn.Module):
     def __init__(self,
                  query_model,
                  candidate_model=None,
+                 vocab_size=80000,
                  embedding_size=300,
-                 embedding_weight_file=None,
+                 padding_idx=0,
+                 embedding_matrix=None,
                  embedding_layer_same=True,
-                 sequence_max_length=32,
                  margin=1,
                  # similarity_function=USESimilarity,
                  similarity_function=torch.nn.CosineSimilarity,
                  loss_type='cross_entropy',
-                 eps=1e-5,
-                 verbose=False):
+                 eps=1e-5):
 
         super(SimilarityTemplate, self).__init__()
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.embedding_size = embedding_size
-        self.embedding_weight_file = embedding_weight_file
+        # self.embedding_weight_file = embedding_weight_file
         self.embedding_layer_same = embedding_layer_same
-        self.sequence_max_length = sequence_max_length
-        self.verbose = verbose
+        # self.sequence_max_length = sequence_max_length
 
-        self.query_embedding_layer = Embedding(embedding_size=self.embedding_size,
-                                               sequence_max_length=self.sequence_max_length,
-                                               verbose=self.verbose).to(self.device)
+        self.query_embedding_layer = torch.nn.Embedding(num_embeddings=vocab_size,
+                                                        embedding_dim=embedding_size,
+                                                        padding_idx=padding_idx).to(self.device)
 
-        if self.embedding_weight_file is not None or self.embedding_layer_same:
+        if self.embedding_layer_same:
             self.candidate_embedding_layer = self.query_embedding_layer
         else:
-            self.candidate_embedding_layer = Embedding(embedding_size=self.embedding_size,
-                                                       sequence_max_length=self.sequence_max_length,
-                                                       verbose=self.verbose).to(self.device)
+            self.candidate_embedding_layer = torch.nn.Embedding(num_embeddings=vocab_size,
+                                                                embedding_dim=embedding_size,
+                                                                padding_idx=padding_idx).to(self.device)
+
+        if embedding_matrix is not None:
+            embedding_matrix = torch.Tensor(embedding_matrix).to(self.device)
+            self.query_embedding_layer = self.query_embedding_layer.from_pretrained(embeddings=embedding_matrix)
+            self.candidate_embedding_layer = self.query_embedding_layer
+
+        # self.query_embedding_layer = Embedding(embedding_size=self.embedding_size,
+        #                                        sequence_max_length=self.sequence_max_length,
+        #                                        verbose=self.verbose).to(self.device)
+        #
+        # if self.embedding_weight_file is not None or self.embedding_layer_same:
+        #     self.candidate_embedding_layer = self.query_embedding_layer
+        # else:
+        #     self.candidate_embedding_layer = Embedding(embedding_size=self.embedding_size,
+        #                                                sequence_max_length=self.sequence_max_length,
+        #                                                verbose=self.verbose).to(self.device)
 
         self.query_model = query_model.to(self.device)
         self.candidate_model = candidate_model.to(self.device) if candidate_model is not None else self.query_model
@@ -125,7 +140,8 @@ class SimilarityTemplate(nn.Module):
 
             query, candidate = self.forward(query=batch[0], candidate=batch[1])
 
-            target = torch.Tensor(batch[2]).to(self.device)
+            target = batch[2]
+            # target = torch.Tensor(batch[2]).to(self.device)
 
             # solve Assertion `x >= 0. && x <= 1.' failed. input value should be between 0~1, but got 1.000000
             # occurs at the beginning of training
