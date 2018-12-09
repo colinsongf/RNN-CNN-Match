@@ -236,7 +236,7 @@ class Wrapper:
                 # maybe is not necessary
                 if self.model.loss_type == 'cross_entropy':
                     # TODO max as hyperparameter
-                    torch.nn.utils.clip_grad.clip_grad_value_(self.model.parameters(), 1.0)
+                    torch.nn.utils.clip_grad.clip_grad_value_(self.model.parameters(), 0.7)
 
                 self.optimizer.step()
 

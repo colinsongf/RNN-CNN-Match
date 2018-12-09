@@ -2,7 +2,6 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 import nltk
 from tools.cleaner import Cleaner
-from tools.vocabulary import Vocabulary
 import numpy as np
 from tqdm import tqdm
 import torch
@@ -40,15 +39,6 @@ class DatasetQuora:
 
         self.cleaner = Cleaner()
 
-        # if self.word_indexing:
-        #     self.vocabulary = Vocabulary(sentence_max_length=sentence_max_length,
-        #                                  padding_after=padding_after,
-        #                                  name='quora_question_pairs',
-        #                                  sos_token=None,
-        #                                  eos_token=None)
-        # else:
-        #     self.vocabulary = None
-
         self.qid2question = {}
         self.token2index = {}
         self.index2token = {}
@@ -57,21 +47,6 @@ class DatasetQuora:
         self.validation = None
 
         self.collect()
-
-    # def __word_indexing__(self, text, data_type='train'):
-    #
-    #     # if data_type == 'train':
-    #     #     try:
-    #     #         text = self.vocabulary.collect(input_data=text, output=True, tokenize=True, padding_for_output=True)
-    #     #     except Exception:
-    #     #         text = [self.vocabulary.pad_token]
-    #     # else:
-    #     #     try:
-    #     #         text = self.vocabulary.sentence2indexes(input_data=text, tokenize=True, padding=True)
-    #     #     except Exception:
-    #     #         text = [self.vocabulary.pad_token]
-    #
-    #     return text
 
     def __prepare_text__(self, text, data_type='train'):
 
