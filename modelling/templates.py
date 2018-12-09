@@ -18,8 +18,8 @@ class SimilarityTemplate(nn.Module):
                  embedding_matrix=None,
                  embedding_layer_same=True,
                  margin=1,
-                 # similarity_function=USESimilarity,
-                 similarity_function=torch.nn.CosineSimilarity,
+                 similarity_function=USESimilarity,
+                 # similarity_function=torch.nn.CosineSimilarity,
                  loss_type='cross_entropy',
                  eps=1e-5):
 
@@ -28,9 +28,7 @@ class SimilarityTemplate(nn.Module):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.embedding_size = embedding_size
-        # self.embedding_weight_file = embedding_weight_file
         self.embedding_layer_same = embedding_layer_same
-        # self.sequence_max_length = sequence_max_length
 
         self.query_embedding_layer = torch.nn.Embedding(num_embeddings=vocab_size,
                                                         embedding_dim=embedding_size,
@@ -48,17 +46,6 @@ class SimilarityTemplate(nn.Module):
             self.query_embedding_layer = self.query_embedding_layer.from_pretrained(embeddings=embedding_matrix)
             self.candidate_embedding_layer = self.query_embedding_layer
 
-        # self.query_embedding_layer = Embedding(embedding_size=self.embedding_size,
-        #                                        sequence_max_length=self.sequence_max_length,
-        #                                        verbose=self.verbose).to(self.device)
-        #
-        # if self.embedding_weight_file is not None or self.embedding_layer_same:
-        #     self.candidate_embedding_layer = self.query_embedding_layer
-        # else:
-        #     self.candidate_embedding_layer = Embedding(embedding_size=self.embedding_size,
-        #                                                sequence_max_length=self.sequence_max_length,
-        #                                                verbose=self.verbose).to(self.device)
-
         self.query_model = query_model.to(self.device)
         self.candidate_model = candidate_model.to(self.device) if candidate_model is not None else self.query_model
 
@@ -71,8 +58,8 @@ class SimilarityTemplate(nn.Module):
         if self.loss_type == 'cross_entropy':
             self.loss = nn.BCELoss()
         elif self.loss_type == 'triplet':
-            self.loss = nn.TripletMarginLoss(margin=margin).to(self.device)
-            # self.loss = USETripletMarginLoss(margin=margin)
+            # self.loss = nn.TripletMarginLoss(margin=margin)
+            self.loss = USETripletMarginLoss(margin=margin)
         else:
             raise ValueError('Unknown loss type. Available: "cross_entropy" and "triplet"')
 

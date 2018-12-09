@@ -1,148 +1,8 @@
 import math
-import numpy as np
-from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
-
-# class Embedding(nn.Module):
-#
-#     def __init__(self, embedding_size=300):
-#
-#         # sequence_max_length = 32,
-#         # pad_token = 'PAD',
-#         # pad_index = 0,
-#         # pad_after = True,
-#         # embedding_layer = None,
-#         # verbose = False
-#
-#         super(Embedding, self).__init__()
-#
-#         # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#
-#         self.embedding_size = embedding_size
-#         # self.output_size = self.embedding_size
-#         # self.sequence_max_length = sequence_max_length
-#         #
-#         # self.pad_token = pad_token
-#         # self.pad_index = pad_index
-#         #
-#         # self.pad_after = pad_after
-#         #
-#         # self.verbose = verbose
-#
-#         # self.token2index = {
-#         #     self.pad_token: self.pad_index
-#         # }
-#         #
-#         # self.index2token = {
-#         #     self.pad_index: self.pad_token
-#         # }
-#
-#         # self.weight_file = None
-#         # self.embedding_layer = embedding_layer
-#
-#         # self.embeddings_type = None
-#
-#     def __collect_pretrained_embeddings__(self, weight_file=None):
-#
-#         self.weight_file = weight_file if weight_file is not None else self.weight_file
-#
-#         if self.weight_file is None:
-#             raise ValueError('Need define weight file')
-#
-#         embedding_matrix = [np.zeros(shape=(self.embedding_size,))]
-#
-#         with open(file=self.weight_file, mode='r', encoding='utf-8', errors='ignore') as file:
-#
-#             index = len(self.token2index)
-#
-#             lines = tqdm(file.readlines(), desc='Collect embeddings') if self.verbose else file.readlines()
-#
-#             for line in lines:
-#
-#                 line = line.split()
-#
-#                 word = ' '.join(line[:-self.embedding_size])
-#                 embeddings = np.asarray(line[-self.embedding_size:], dtype='float32')
-#
-#                 if not word or embeddings.shape[0] != self.embedding_size:
-#                     continue
-#
-#                 self.token2index[word] = index
-#                 self.index2token[index] = word
-#
-#                 embedding_matrix.append(embeddings)
-#
-#                 index += 1
-#
-#         self.embedding_layer = torch.nn.Embedding.from_pretrained(torch.Tensor(embedding_matrix)).to(self.device)
-#
-#     def __create_embeddings_matrix__(self, vocab_size, token2index, index2token, pad_token, pad_index):
-#
-#         self.token2index = token2index
-#         self.index2token = index2token
-#         self.pad_token = pad_token
-#         self.pad_index = pad_index
-#
-#         self.embedding_layer = nn.Embedding(num_embeddings=vocab_size,
-#                                             embedding_dim=self.embedding_size,
-#                                             padding_idx=self.pad_index).to(self.device)
-#
-#     def set_embeddings(self,
-#                        # embeddings_type,
-#                        # weight_file=None,
-#                        # vocab_size=None,
-#                        # token2index=None,
-#                        # index2token=None,
-#                        # pad_token=None,
-#                        # pad_index=None
-#                        ):
-#
-#         self.embeddings_type = embeddings_type
-#
-#         if self.embeddings_type == 'pretrained':
-#             self.__collect_pretrained_embeddings__(weight_file=weight_file)
-#         elif self.embeddings_type == 'trainable':
-#             self.__create_embeddings_matrix__(vocab_size=vocab_size,
-#                                               token2index=token2index,
-#                                               index2token=index2token,
-#                                               pad_token=pad_token,
-#                                               pad_index=pad_index)
-#         else:
-#             raise ValueError('Unknown embeddings_type')
-#
-#     def indexing(self, batch):
-#
-#         for n_sample in range(len(batch)):
-#
-#             tokens = batch[n_sample]
-#
-#             if self.embeddings_type == 'pretrained':
-#                 tokens = [self.token2index[token] for token in tokens if token in self.token2index]
-#
-#             tokens = tokens[:self.sequence_max_length]
-#
-#             if len(tokens) < self.sequence_max_length:
-#
-#                 pads = [self.pad_index] * (self.sequence_max_length - len(tokens))
-#
-#                 if self.pad_after:
-#                     tokens = tokens + pads
-#                 else:
-#                     tokens = pads + tokens
-#
-#             batch[n_sample] = tokens
-#
-#         return torch.LongTensor(batch).to(self.device)
-#
-#     def forward(self, batch):
-#
-#         # batch = self.indexing(batch=batch)
-#
-#         return self.embedding_layer(batch)
 
 
 class FullyConnected(nn.Module):
@@ -185,6 +45,7 @@ class FullyConnected(nn.Module):
             self.layers.append(self.__dict__['{}_{}'.format(self.dense_layer_prefix, n)])
             self.layers.append(self.__dict__['{}_{}'.format(self.activation_function_prefix, n)])
 
+        # TODO as ModuleList
         self.model = torch.nn.Sequential(*self.layers)
 
     def forward(self, x, x_lengths=None):
@@ -263,6 +124,17 @@ class RNN(nn.Module):
                 return rnn_output
 
 
+class GELU(nn.Module):
+
+    def __init__(self):
+        super(GELU, self).__init__()
+
+        self.const = 0.044715
+
+    def forward(self, x):
+        return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+
+
 class CNN(nn.Module):
 
     def __init__(self,
@@ -271,7 +143,7 @@ class CNN(nn.Module):
                  kernel_size_convolution,
                  kernel_size_pool=None,
                  pool_layer=nn.MaxPool1d,
-                 activation_function=F.relu):
+                 activation_function=GELU):
 
         super(CNN, self).__init__()
 
@@ -287,7 +159,7 @@ class CNN(nn.Module):
         self.pool_layer = pool_layer(kernel_size=self.kernel_size_pool, stride=1) \
             if pool_layer is not None else pool_layer
 
-        self.activation_function = activation_function
+        self.activation_function = activation_function()
 
     def forward(self, x, x_lengths=None):
 
