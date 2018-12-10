@@ -41,7 +41,8 @@ class RNNCNNMatch(nn.Module):
                  rnn_hidden_size=256,
                  cnn_hidden_size=128,
                  cnn_kernel_sizes=tuple(range(1, 6)),
-                 kernel_size_pool=4):
+                 kernel_size_pool=4,
+                 rnn_type=nn.LSTM):
         """
         RNN-CNN-Match
         from
@@ -61,7 +62,8 @@ class RNNCNNMatch(nn.Module):
 
         self.layers = [RNN(input_layer_size=self.embedding_size,
                            hidden_size=self.rnn_hidden_size,
-                           output_last_state=False)]
+                           output_last_state=False,
+                           rnn_type=rnn_type)]
 
         self.layers += [CNN(input_size=self.rnn_hidden_size,
                             out_chanels=self.cnn_hidden_size,
@@ -76,7 +78,7 @@ class RNNCNNMatch(nn.Module):
                                 for kernel_size in self.cnn_kernel_sizes[1:]])
 
         self.model = torch.nn.Sequential(*self.layers)
-        
+
         # TODO do params as hyper
         self.fully_connected = nn.Linear(in_features=896, out_features=300)
 

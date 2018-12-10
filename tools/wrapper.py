@@ -115,22 +115,22 @@ class Wrapper:
         negatives_vectorized = self.model.text_embedding(x=torch.LongTensor(negatives).to(self.device),
                                                          model_type='candidate')
 
-        attention = torch.matmul(query_vactorized, negatives_vectorized.transpose(0, 1))
+        matmul_attention = torch.matmul(query_vactorized, negatives_vectorized.transpose(0, 1))
 
         if self.hard_k_next:
 
             # if we wont get top-2
             # if we take too many samples we can choose select sample existing in quieries
 
-            max_attentive_matrix = torch.zeros_like(attention)
-            values, args = attention.max(dim=1)
+            max_attentive_matrix = torch.zeros_like(matmul_attention)
+            values, args = matmul_attention.max(dim=1)
 
             for n, i in enumerate(range(max_attentive_matrix.size(0))):
                 max_attentive_matrix[i, args[n]] = values[n]
 
-            attention -= max_attentive_matrix
+            matmul_attention -= max_attentive_matrix
 
-        max_attentive_indexes = list(attention.argmax(dim=1).cpu().numpy())
+        max_attentive_indexes = list(matmul_attention.argmax(dim=1).cpu().numpy())
 
         max_attentive_qids = [negatives_qids[n] for n in max_attentive_indexes]
 
@@ -309,9 +309,8 @@ class Wrapper:
                 message = list()
 
                 message.append(
-                    'Epoch: [{}/{}] | {} loss: {:.3f} | Validation Loss: {:.3f}'.format(
-                        n_epoch,
-                        epochs,
+                    'Epoch: {} | {} loss: {:.3f} | Validation Loss: {:.3f}'.format(
+                        self.epochs_passed,
                         self.model.loss_type.capitalize(),
                         self.epoch_mean_losses[-1],
                         self.validation_losses[-1]
