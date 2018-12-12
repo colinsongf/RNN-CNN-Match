@@ -138,7 +138,8 @@ class Wrapper:
             similarity = 1 - (torch.acos(similarity) / math.pi)
 
         if self.threshold_similarity is not None:
-            similarity = similarity - (similarity > self.threshold_similarity).type(torch.FloatTensor)
+            similarity = similarity - (similarity > self.threshold_similarity).type(torch.FloatTensor).to(
+                self.model.device)
             similarity = F.relu(similarity)
 
         if self.hard_k_next:
