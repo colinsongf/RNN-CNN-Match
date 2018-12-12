@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 import math
 import random
@@ -24,7 +25,9 @@ class Wrapper:
                  generate_negatives_type='random',
                  hard_negatives_multiplier=5,
                  max_hard_negatives=10000,
-                 hard_k_next=True):
+                 hard_k_next=True,
+                 sim_func_from_use=False,
+                 threshold_similarity=0.985):
         """
         Init params
         :param dataset:
@@ -39,6 +42,7 @@ class Wrapper:
         :param hard_negatives_multiplier: how many hard negatives (batch_size * hard_negatives_multiplier) we select
         :param max_hard_negatives: to solve memory leak problem
         :param hard_k_next: if we wont not max relevant negative
+        :param sim_func_from_use: universal sentence encoding similarity function
         """
 
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -62,6 +66,9 @@ class Wrapper:
         self.hard_negatives_multiplier = hard_negatives_multiplier
         self.max_hard_negatives = max_hard_negatives
         self.hard_k_next = hard_k_next
+
+        self.sim_func_from_use = sim_func_from_use
+        self.threshold_similarity = threshold_similarity
 
         if self.generate_negatives_type not in self.available_generate_negatives_types:
             raise ValueError('Unknown generate_negatives_type. Available: {}'.format(', '.join(
@@ -115,26 +122,43 @@ class Wrapper:
         negatives_vectorized = self.model.text_embedding(x=torch.LongTensor(negatives).to(self.device),
                                                          model_type='candidate')
 
-        matmul_attention = torch.matmul(query_vactorized, negatives_vectorized.transpose(0, 1))
+        similarity = torch.matmul(query_vactorized, negatives_vectorized.transpose(0, 1))
+
+        query_norms = torch.matmul(query_vactorized, query_vactorized.transpose(0, 1)).pow(0.5).diag().unsqueeze(1)
+        negatives_norms = torch.matmul(
+            negatives_vectorized, negatives_vectorized.transpose(0, 1)).pow(0.5).diag().unsqueeze(1)
+
+        norms = torch.matmul(query_norms, negatives_norms.transpose(0, 1))
+
+        similarity = similarity / norms
+
+        similarity = F.relu(similarity - self.model.eps)
+
+        if self.sim_func_from_use:
+            similarity = 1 - (torch.acos(similarity) / math.pi)
+
+        if self.threshold_similarity is not None:
+            similarity = similarity - (similarity > self.threshold_similarity).type(torch.FloatTensor)
+            similarity = F.relu(similarity)
 
         if self.hard_k_next:
 
             # if we wont get top-2
             # if we take too many samples we can choose select sample existing in quieries
 
-            max_attentive_matrix = torch.zeros_like(matmul_attention)
-            values, args = matmul_attention.max(dim=1)
+            max_similar_matrix = torch.zeros_like(similarity)
+            values, args = similarity.max(dim=1)
 
-            for n, i in enumerate(range(max_attentive_matrix.size(0))):
-                max_attentive_matrix[i, args[n]] = values[n]
+            for n, i in enumerate(range(max_similar_matrix.size(0))):
+                max_similar_matrix[i, args[n]] = values[n]
 
-            matmul_attention -= max_attentive_matrix
+            similarity -= max_similar_matrix
 
-        max_attentive_indexes = list(matmul_attention.argmax(dim=1).cpu().numpy())
+        max_similar_indexes = list(similarity.argmax(dim=1).cpu().numpy())
 
-        max_attentive_qids = [negatives_qids[n] for n in max_attentive_indexes]
+        max_similar_qids = [negatives_qids[n] for n in max_similar_indexes]
 
-        return self.dataset.prepare_batch(max_attentive_qids)
+        return self.dataset.prepare_batch(max_similar_qids)
 
     def __generate_negatives__(self, queries, batch_size):
         """
