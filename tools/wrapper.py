@@ -95,6 +95,8 @@ class Wrapper:
         self.best_mean_loss = 1000
         self.validation_best_mean_loss = 1000
 
+        self.__validation_check__ = False
+
     def get_random_negatives(self, samples=None):
         """
         Generate random negatives candidates
@@ -166,7 +168,7 @@ class Wrapper:
         Choose method and generate negatives candidates
         """
 
-        if self.generate_negatives_type == 'random':
+        if self.generate_negatives_type == 'random' or self.__validation_check__:
             return self.get_random_negatives(samples=batch_size)
         else:
             return self.get_hard_negatives(queries=queries, samples=batch_size * self.hard_negatives_multiplier)
@@ -308,6 +310,8 @@ class Wrapper:
 
             validation_batch_size = self.batch_size * self.validation_batch_size_multiplier
 
+            self.__validation_check__ = True
+
             for batch in self.batch_generator(data_type='validation', batch_size=validation_batch_size):
 
                 with torch.no_grad():
@@ -316,6 +320,8 @@ class Wrapper:
 
                     validation_epoch_mean_loss.append(validation_loss.item())
                     validation_epoch_mean_recalls.extend(validation_recall)
+
+            self.__validation_check__ = False
 
             self.validation_losses.append(np.mean(validation_epoch_mean_loss))
             self.validation_recalls.append(np.mean(validation_epoch_mean_recalls))
